@@ -16,16 +16,15 @@
 #include "nrf_delay.h"
 #include "i2c_state.h"
 #include "timer.h"
-#include "mag_2_ak09911.h"
+#include "mag_ak09911.h"
 
 
 #define AK09911_I2C_ADDR1				(0x0C)
 #define AK09911_I2C_ADDR2				(0x0D)
+#define AK09911_CAD_SELECT				(0)
+#define AK09911_I2C_ADDR         		(AK09911_I2C_ADDR1 | AK09911_CAD_SELECT)
 #define AK09911_CHIP_ID1     			(0x48)
 #define AK09911_CHIP_ID2     			(0x05)
-
-//ID2: AK09911C 0x05
-//ID2: AK09918C 0x0C
 
 #define AK09911_USER_WIA1_ADDR			0x00
 #define AK09911_USER_WIA2_ADDR			0x01
@@ -48,7 +47,7 @@
 #define AK09911_USER_ASAY_ADDR			0x61
 #define AK09911_USER_ASAZ_ADDR			0x62
 
-#define AK09911_I2C_ADDR     AK09911_I2C_ADDR2
+#define MAG_ADDRESS     AK09911_I2C_ADDR
 
 
 static bool     mag_st_work = false;
@@ -63,7 +62,7 @@ static int16_t  mag_rawdat[3] = {0};
 /*
 ** AK09911 read iic data
 */
-static uint8_t mag_read_buffer(uint8_t reg, uint8_t len, t_twievent f_event)
+uint8_t mag_read_buffer(uint8_t reg, uint8_t len, t_twievent f_event)
 {
 	sTwiOper oper = {0};
 	
@@ -82,7 +81,7 @@ static uint8_t mag_read_buffer(uint8_t reg, uint8_t len, t_twievent f_event)
 /*
 ** AK09911 write iic data
 */
-static uint8_t mag_write_byte(uint8_t reg, uint8_t val, t_twievent f_event)
+uint8_t mag_write_byte(uint8_t reg, uint8_t val, t_twievent f_event)
 {
 	sTwiOper oper = {0};
 	mag_buffer[0] = reg;
@@ -99,7 +98,7 @@ static uint8_t mag_write_byte(uint8_t reg, uint8_t val, t_twievent f_event)
 /*
 ** AK09911 process measure datas event
 */
-static bool mag_event_measure(uint8_t evt, sTwiOper * pNext)
+bool mag_event_measure(uint8_t evt, sTwiOper * pNext)
 {
 	if (evt == TWI_EVT_OK)
 	{
@@ -114,12 +113,11 @@ static bool mag_event_measure(uint8_t evt, sTwiOper * pNext)
 /*
 ** AK09911 process init event
 */
-static bool mag_event_init(uint8_t evt, sTwiOper * pNext)
+bool mag_event_init(uint8_t evt, sTwiOper * pNext)
 {
 	if (evt != TWI_EVT_OK)
 	{
 		mag_state  = 0;
-		NRF_LOG_PRINTF("AK0991x(2) error\r\n");
 	}
 	mag_busy = 0;
 	mag_tick = get_time_ms() + 10;
@@ -128,15 +126,15 @@ static bool mag_event_init(uint8_t evt, sTwiOper * pNext)
 
 /*
 */
-void mag_2_init(void)
+void mag_init(void)
 {
-//	nrf_gpio_cfg_output(MAG_RESET_PORT);
-//	nrf_gpio_pin_set(MAG_RESET_PORT);
+	nrf_gpio_cfg_output(MAG_RESET_PORT);
+	nrf_gpio_pin_set(MAG_RESET_PORT);
 }
 /*
 ** AK09911 measure callback
 */
-void mag_2_measure(void)
+void mag_measure(void)
 {
 	if (!mag_st_work)
 	{
@@ -159,7 +157,6 @@ void mag_2_measure(void)
 			}
 			break;
 		case 2:
-			NRF_LOG_PRINTF("AK0991x(2) ID1:%02X\r\n", mag_buffer[0]);
 			if (mag_buffer[0] != AK09911_CHIP_ID1)
 			{
 				mag_state = 0;
@@ -171,7 +168,6 @@ void mag_2_measure(void)
 			}
 			break;
 		case 3:
-			NRF_LOG_PRINTF("AK0991x(2) ID2:%02X\r\n", mag_buffer[0]);
 			if (mag_buffer[0] != AK09911_CHIP_ID2)
 			{
 				mag_state = 0;
@@ -180,7 +176,7 @@ void mag_2_measure(void)
 			else if ((mag_busy = mag_write_byte(AK09911_USER_CNTL2_ADDR, 0x08, mag_event_init))!=0)
 			{
 				mag_state++;
-				NRF_LOG_PRINTF("AK0991x(2) Init Finished\r\n");
+//				NRF_LOG_PRINTF("imu_ak0991 work\r\n");
 			}
 			break;
 		default:
@@ -191,7 +187,7 @@ void mag_2_measure(void)
 	}
 }
 
-bool mag_2_sleep(void)
+bool mag_sleep(void)
 {
 	if (!mag_st_sleep)
 	{
@@ -205,11 +201,11 @@ bool mag_2_sleep(void)
 		{
 		case 0:
 		  	mag_tick  = get_time_ms() + 50;
-//			nrf_gpio_pin_clear(MAG_RESET_PORT);
+			nrf_gpio_pin_clear(MAG_RESET_PORT);
 			mag_state = 1;
 			break;
 		case 1:
-//		  	nrf_gpio_pin_set(MAG_RESET_PORT);
+		  	nrf_gpio_pin_set(MAG_RESET_PORT);
 		  	mag_state = 2;
 //		  	NRF_LOG_PRINTF("imu_ak0991 sleep\r\n");
 		default:
@@ -219,7 +215,7 @@ bool mag_2_sleep(void)
 	return false;
 }
 
-void mag_2_getraw(int16_t* pbuf)
+void mag_getraw(int16_t* pbuf)
 {
 	memcpy(pbuf, mag_rawdat, 3*2);
 }

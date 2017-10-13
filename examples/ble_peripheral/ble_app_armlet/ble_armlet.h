@@ -36,8 +36,8 @@
  *  qualification listings, this section of source code must not be modified.
  */
 
-#ifndef BLE_ARMLET_H__
-#define BLE_ARMLET_H__
+#ifndef BLE_BAS_H__
+#define BLE_BAS_H__
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -47,8 +47,8 @@
 /**@brief Battery Service event type. */
 typedef enum
 {
-    BLE_ARMLET_EVT_NOTIFICATION_ENABLED,                             /**< Battery value notification enabled event. */
-    BLE_ARMLET_EVT_NOTIFICATION_DISABLED                             /**< Battery value notification disabled event. */
+    BLE_BAS_EVT_NOTIFICATION_ENABLED,                             /**< Battery value notification enabled event. */
+    BLE_BAS_EVT_NOTIFICATION_DISABLED                             /**< Battery value notification disabled event. */
 } ble_armlet_evt_type_t;
 
 /**@brief Battery Service event. */

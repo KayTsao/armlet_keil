@@ -39,7 +39,6 @@
 
 /*******************************************/
 #define	I2C_ADDRESS    (0xD4>>1)
-//#define	I2C_ADDRESS    (0xD6>>1)
 /*******************************************/
 
 
@@ -49,12 +48,9 @@ typedef struct{
 }sIMURegs;
 
 static sIMURegs init_regs[] = {
-	{0x12,					0x04},
+	{0x12,					0x44},
 	{CTRL1_XL,   	  0x74},
-	{CTRL2_G,   	  0x7C},	
-//	{0x12,					0x44},
-//	{CTRL1_XL,   	  0x7C},   0x74
-//	{CTRL2_G,   	  0x7C},
+	{CTRL2_G,   	  0x7C},
 };
 
 static uint8_t  imu_alive = 0;
@@ -68,7 +64,7 @@ static int16_t  imu_rawdat[6] = {0};
 /*
 ** 请求一个I2C处理
 */
-static uint8_t imu_read_buffer(uint8_t reg, uint8_t len, t_twievent f_event)
+uint8_t imu_read_buffer(uint8_t reg, uint8_t len, t_twievent f_event)
 {
 	sTwiOper oper = {0};
 	imu_register = reg;
@@ -85,7 +81,7 @@ static uint8_t imu_read_buffer(uint8_t reg, uint8_t len, t_twievent f_event)
 /*
 ** 请求一个I2C处理
 */
-static uint8_t imu_write_byte(uint8_t reg, uint8_t val, t_twievent f_event)
+uint8_t imu_write_byte(uint8_t reg, uint8_t val, t_twievent f_event)
 {
 	sTwiOper oper = {0};
 	imu_buffer[0] = reg;
@@ -101,7 +97,7 @@ static uint8_t imu_write_byte(uint8_t reg, uint8_t val, t_twievent f_event)
 /*
 ** 复位状态机
 */
-static void imu_reset_state(void)
+void imu_reset_state(void)
 {
 	imu_busy = 0;
 	imu_state = 0;
@@ -112,20 +108,18 @@ static void imu_reset_state(void)
 /*
 ** 测量数据  事件处理
 */
-static bool imu_event_measure(uint8_t evt, sTwiOper* pNextOper)
+bool imu_event_measure(uint8_t evt, sTwiOper* pNextOper)
 {
 	if (evt == TWI_EVT_OK)
 	{
 		//ACC
-		imu_rawdat[0] = (int16_t)(imu_buffer[ 7]<<8 | (imu_buffer[ 6]));
-		imu_rawdat[1] = (int16_t)(imu_buffer[ 9]<<8 | (imu_buffer[ 8]));
-		imu_rawdat[2] = (int16_t)(imu_buffer[11]<<8 | (imu_buffer[10]));
+		imu_rawdat[0] = (int16_t)((imu_buffer[ 7]<<8) | imu_buffer[ 6]);
+		imu_rawdat[1] = (int16_t)((imu_buffer[ 9]<<8) | imu_buffer[ 8]);
+		imu_rawdat[2] = (int16_t)((imu_buffer[11]<<8) | imu_buffer[10]);
 		//GYRO
-		imu_rawdat[3] = (int16_t)(imu_buffer[ 1]<<8 | (imu_buffer[ 0]));
-		imu_rawdat[4] = (int16_t)(imu_buffer[ 3]<<8 | (imu_buffer[ 2]));
-		imu_rawdat[5] = (int16_t)(imu_buffer[ 5]<<8 | (imu_buffer[ 4]));
-		
-//		NRF_LOG_PRINTF("IMU(2) %7d %7d %7d\r\n", imu_rawdat[3], imu_rawdat[4], imu_rawdat[5]);
+		imu_rawdat[3] = (int16_t)((imu_buffer[ 1]<<8) | imu_buffer[ 0]);
+		imu_rawdat[4] = (int16_t)((imu_buffer[ 3]<<8) | imu_buffer[ 2]);
+		imu_rawdat[5] = (int16_t)((imu_buffer[ 5]<<8) | imu_buffer[ 4]);
 	}
 	imu_busy = 0;
 	return false;
@@ -133,7 +127,7 @@ static bool imu_event_measure(uint8_t evt, sTwiOper* pNextOper)
 /*
 ** 初始化  事件处理
 */
-static bool imu_event_init(uint8_t evt, sTwiOper* pNextOper)
+bool imu_event_init(uint8_t evt, sTwiOper* pNextOper)
 {
 	if (evt != TWI_EVT_OK)
 	{
@@ -147,7 +141,7 @@ static bool imu_event_init(uint8_t evt, sTwiOper* pNextOper)
 /*
 ** 发送初始化 或 测量
 */
-void imu_1_measure(void)
+void imu_measure(void)
 {
 	if (imu_alive && !imu_busy)
 	{		
@@ -164,7 +158,6 @@ void imu_1_measure(void)
 			}
 			break;
 		case 1:
-			NRF_LOG_PRINTF("LSM6DSL(1) ID:%02X\r\n", imu_buffer[0]);
 			if (imu_buffer[0] != LSM6DSL_CHIP_ID)
 			{
 				imu_state = 0;
@@ -188,18 +181,17 @@ void imu_1_measure(void)
 			}else{
 				imu_alive = 1;
 				imu_reset_state();
-				NRF_LOG_PRINTF("LSM6DSL(1) Init Finished\r\n");
 			}
 			break;
 		}
 	}
 }
 
-void imu_1_init(void)
+void imu_init(void)
 {
 }
 
-void imu_1_getraw(int16_t* pbuf)
+void imu_getraw(int16_t* pbuf)
 {
 	memcpy(pbuf, imu_rawdat, 6*2);
 }

@@ -67,11 +67,11 @@ static void on_write(ble_armlet_t * p_bas, ble_evt_t * p_ble_evt)
 
 			if (ble_srv_is_notification_enabled(p_evt_write->data))
 			{
-				evt.evt_type = BLE_ARMLET_EVT_NOTIFICATION_ENABLED;
+				evt.evt_type = BLE_BAS_EVT_NOTIFICATION_ENABLED;
 			}
 			else
 			{
-				evt.evt_type = BLE_ARMLET_EVT_NOTIFICATION_DISABLED;
+				evt.evt_type = BLE_BAS_EVT_NOTIFICATION_DISABLED;
 			}
 
 			p_bas->evt_handler(p_bas, &evt);

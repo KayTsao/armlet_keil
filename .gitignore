@@ -25,3 +25,4 @@ JLinkLog.txt
 *.l1p
 *.l2p
 .#*
+__*
