@@ -104,8 +104,8 @@ static ble_armlet_t                      m_armlet;
 APP_TIMER_DEF(m_sensor_timer_id);                                                   /**< Sensor timer. */
 static bool AppTimerFlag;
 
-static SampleSlideBuf GlobalAccSampleSlideBuf ;
-static SampleSlideBuf GlobalGyrSampleSlideBuf ;
+//static SampleSlideBuf GlobalAccSampleSlideBuf_1 ;
+//static SampleSlideBuf GlobalGyrSampleSlideBuf_1 ;
 static AttitudeSensor SensorNode1, SensorNode2;
 
 
@@ -155,9 +155,9 @@ static bool LoadRawData(int id, int16_t* rawIMU, int16_t* rawMag)
 	sensor->gy_raw = (float)rawIMU[4] * gyroRatio;
 	sensor->gz_raw = (float)rawIMU[5] * gyroRatio;
 	
-	sensor->mx_raw = (float)rawMag[0] * magRatio_9918;
-	sensor->my_raw = (float)rawMag[1] * magRatio_9918;
-	sensor->mz_raw = (float)rawMag[2] * magRatio_9918; 
+	sensor->mx_raw = (float)rawMag[0] * magRatio_9911;
+	sensor->my_raw = (float)rawMag[1] * magRatio_9911;
+	sensor->mz_raw = (float)rawMag[2] * magRatio_9911; 
 	sensor->cur_t_us = get_time_us(); 
 }
 
@@ -184,14 +184,13 @@ static void sensor_timeout_handler(void * p_context)
 	
 	imu_getraw(imu_raw);
 	mag_getraw(mag_raw);
-
-	//imu_2_getraw(imu_2_raw);	mag_2_getraw(mag_2_raw);
+ 
  
 	//KK load latest measurement
-	LoadRawData(1, imu_raw, mag_raw);
-	//LoadRawData(2, imu_2_raw, mag_2_raw);
+	LoadRawData(1, imu_raw, mag_raw); 
 	 
 	UpdateReady = true; 
+	countNo++ ; 
 	
 	return;  	
 }
@@ -650,29 +649,11 @@ static void power_manage(void)
 }
 
 
-static void initAlgoParam()
-{
-	UpdateReady = false;
-	SensorNode1.ax_raw = SensorNode1.ay_raw = SensorNode1.az_raw = 0.0f;
-	SensorNode1.gx_raw = SensorNode1.gy_raw = SensorNode1.gz_raw = 0.0f;
-	SensorNode1.mx_raw = SensorNode1.my_raw = SensorNode1.mz_raw = 0.0f;
-
-
-	SensorNode2.ax_raw = SensorNode2.ay_raw = SensorNode2.az_raw = 0.0f;
-	SensorNode2.gx_raw = SensorNode2.gy_raw = SensorNode2.gz_raw = 0.0f;
-	SensorNode2.mx_raw = SensorNode2.my_raw = SensorNode2.mz_raw = 0.0f;
-
-}
-
-static void processRawData()
-{
-	
-}
-static void SendPKG()
+static uint32_t SendPKG()
 {
 	static uint8_t id = 0;
-	int32_t timestamp, out_x, out_y, out_z;
-	uint8_t buffer[20] = {0};
+	int32_t timestamp, out_x, out_y, out_z, out_w;
+	uint8_t buffer[25] = {0};
 	
 	sStream stream;
 	timestamp = get_time_ms();
@@ -697,6 +678,10 @@ static void SendPKG()
 	out_y = (int16_t) (SensorNode1.ay_raw * 10000.0f);
 	out_z = (int16_t) (SensorNode1.az_raw * 10000.0f);
 	
+	//test processraw Variance
+//	out_x = (int32_t) (SensorNode1.Acc_SlideVariance[0] * 10000.0f);
+//	out_y = (int32_t) (SensorNode1.Acc_SlideVariance[1] * 10000.0f);
+//	out_z = (int32_t) (SensorNode1.Acc_SlideVariance[2] * 10000.0f);
 	stream_putbits(&stream, out_x, 16);	//ACC X
 	stream_putbits(&stream, out_y, 16);	//ACC Y
 	stream_putbits(&stream, out_z, 16);	//ACC Z
@@ -711,7 +696,18 @@ static void SendPKG()
 	stream_putbits(&stream, out_z, 16);	//GYRO Z
 
 
-	uint32_t bleSendErrCode;
+//    out_w = (int32_t) (SensorNode1.Ori.w * 10000.0f);
+//	out_x = (int32_t) (SensorNode1.Ori.x * 10000.0f);
+//	out_y = (int32_t) (SensorNode1.Ori.y * 10000.0f);
+//	out_z = (int32_t) (SensorNode1.Ori.z * 10000.0f);
+//	stream_putbits(&stream, out_w, 16);	//Ori W
+//	stream_putbits(&stream, out_x, 16);	//Ori X
+//	stream_putbits(&stream, out_y, 16);	//Ori Y
+//	stream_putbits(&stream, out_z, 16);	//Ori Z
+
+
+	uint32_t bleSendErrCode = 0;
+	
 	//bleSendErrCode = ble_armlet_send(&m_armlet, buffer, 20);
 
 	if(1)//bleSendErrCode == 0)
@@ -726,7 +722,7 @@ static void SendPKG()
 		app_uart_put(0x0d);
 		app_uart_put(0x0a); 
 	}  
-	
+	return bleSendErrCode;
 	/*
 	memset(buffer, 0, sizeof(buffer));
 	stream_init(&stream, buffer, sizeof(buffer));
@@ -783,8 +779,14 @@ static void main_loop()
 {
 	if(UpdateReady == true)
 	{
-		processRawData();
-		SendPKG();
+		processData(&SensorNode1); 
+		if(countNo > 0)  //5->85fps)
+		{
+			if(SendPKG() == 0)
+			{
+				countNo = 0;
+			} 
+		}
 		UpdateReady = false;		
 	}
 	  
@@ -824,11 +826,10 @@ int main(void)
     err_code = ble_advertising_start(BLE_ADV_MODE_FAST);
     APP_ERROR_CHECK(err_code);
 	
-    initAlgoParam();
+    initAlgoParam(&SensorNode1);
 	// Enter main loop.
 	for(; ;)
-	{
-		//power_manage();
+	{ 
 		main_loop();
 	}
 }
