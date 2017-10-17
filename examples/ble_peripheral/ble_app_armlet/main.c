@@ -155,9 +155,9 @@ static bool LoadRawData(int id, int16_t* rawIMU, int16_t* rawMag)
 	sensor->gy_raw = (float)rawIMU[4] * gyroRatio;
 	sensor->gz_raw = (float)rawIMU[5] * gyroRatio;
 	
-	sensor->mx_raw = (float)rawMag[0] * magRatio_9918;
-	sensor->my_raw = (float)rawMag[1] * magRatio_9918;
-	sensor->mz_raw = (float)rawMag[2] * magRatio_9918; 
+	sensor->mx_raw = (float)rawMag[0] * magRatio_9911;
+	sensor->my_raw = (float)rawMag[1] * magRatio_9911;
+	sensor->mz_raw = (float)rawMag[2] * magRatio_9911; 
 	sensor->cur_t_us = get_time_us(); 
 }
 
