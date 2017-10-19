@@ -11,8 +11,8 @@
 
 #define SAMPLE_TIME_GAP 25 
 		
-#define ACC_SAMPLES_RATE 400  // ACC采样率
-#define ACC_LIMIT_FREQ  20    // ACC截止频率
+#define ACC_SAMPLES_RATE 500  // ACC采样率
+#define ACC_LIMIT_FREQ  10    // ACC截止频率
  
 #define _2PI        (6.283185307179f)
 #define _3PI_over2  (4.712388980384f)
@@ -24,9 +24,11 @@
 #define _1_over_2PI (0.159154943091f)
 		
 		
-#define SLIDE_BUF_LEN 20
-#define AccVarWindowSize 200
-#define AccVar_StaticThreshold 0.0001
+#define SLIDE_BUF_LEN 50
+#define AccVarWindowSize 25
+#define GyrVarWindowSize 25
+#define AccVar_StaticThreshold 0.05;
+#define GyrVar_StaticThreshold 0.0000025;
 		
 static int16_t cur_time;
 static const float gyroRatio = 0.07f * (PI/180.0f) ;   // ITG3205陀螺仪手册上给的典型值是14.375(LSB/(°/s))
@@ -69,11 +71,20 @@ typedef struct Vector3D_t
 static bool UpdateReady;
 static int countNo;
 
+
 typedef struct {
 	int judgeVal[AccVarWindowSize];
 	int Idx;
 	bool FullArray;
-}JudgeWindow;  // info about acc covariance
+}JudgeWindow_V1;  // info about acc covariance
+
+
+typedef struct {
+	int judgeVal[AccVarWindowSize][3];
+	int Idx;
+	bool FullArray;
+}JudgeWindow_V3;  // info about acc covariance
+
 
 
 typedef struct {
@@ -105,48 +116,37 @@ typedef struct AttitudeSensor_t
 	float gx_raw, gy_raw, gz_raw;
 	float mx_raw, my_raw, mz_raw;
 
-	SampleSlideBuf accSlideBuf; 
+	SampleSlideBuf accSlideBuf;  
 	float Acc_SlideAverage[3];
 	float Acc_SlideStable[3];
 	float Acc_SlidePre[3];  
-	float Acc_SlideVariance[3]; 
+	float Acc_SlideVariance[3];  
+	JudgeWindow_V1 accJudgeWindow;
 
-	JudgeWindow accJudgeWindow;
-
-	float GyroBias[3] ; 
-	Quaternion Ori;
-	float AccWeight;
+	SampleSlideBuf gyrSlideBuf; 
+	float Gyr_SlideAverage[3];
+	float Gyr_SlideStable[3];
+	float Gyr_SlidePre[3];  
+	float Gyr_SlideVariance[3];  
+	JudgeWindow_V3 gyrJudgeWindow;
+ 
+	uint32_t ts_cur_ms;
+	uint32_t ts_prev_ms;
 	float SamplePeriod;
-
-	uint32_t ts_cur_ns;
-	uint32_t ts_prev_ns;
+		
+	float AccWeight;
+	bool GyrStable;
 	
-	//  Float G_Variance;
+	Vector3D GyroBias ; 
+		
+	Quaternion Ori; 
+	
+	float testOutPut[4];
+	
 
-	//SampleSlideBuf gyrSlideBuf;
-	//float Gyr_SlideAverage[3];
-	//float Gyr_SlideStable[3];
-	//float Gyr_SlideVariance[3]; 
-	//float Gyr_SlidePre[3];  
-
-
-
-	// 加速度计
-	int16_t ax ;
-	int16_t ay ;
-	int16_t az ;
-	int16_t a_align ;   // 无意义，只为使4字节对齐。
-
-	// 磁场计
-	int16_t mx ;
-	int16_t my ;
-	int16_t mz ;
-	int16_t m_align ;   // 无意义，只为使4字节对齐。
-	// 陀螺仪
-	int16_t gx ;
-	int16_t gy ;
-	int16_t gz ;
-	int16_t g_align ;   // 无意义，只为使4字节对齐。
+float MagFilterRatio;
+	
+	//  Float G_Variance; 
 
 
 	// 磁场计低通滤波
@@ -188,7 +188,13 @@ typedef struct AttitudeSensor_t
 
 
 void initAlgoParam(AttitudeSensor * sensor);
-int processRawData(AttitudeSensor * sensor);
-void MahonyAHRS(AttitudeSensor * sensor);
+
 void processData(AttitudeSensor * sensor);	 
+int processRawData(AttitudeSensor * sensor);
+int processRawMag(AttitudeSensor * sensor);
+int processRawAcc(AttitudeSensor * sensor);
+int processRawGyr(AttitudeSensor * sensor);
+int processRawMag(AttitudeSensor * sensor);
+
+void MahonyAHRS(AttitudeSensor * sensor);
 #endif 

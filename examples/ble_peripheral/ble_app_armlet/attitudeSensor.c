@@ -1,6 +1,7 @@
 #include "stdint.h" 
 #include "attitudeSensor.h"  
 
+#include "nrf_log.h"
 
 static const float _1_ = 0.99999999 ;
 static const float _0_ = 0.00000001 ;
@@ -40,7 +41,7 @@ static Quaternion getNormalized_q4(Quaternion* q4)
 	Quaternion  rst;
 	Quaternion  _q = *q4 ; 
 	Quaternion * q = &_q ; 
-	len = getLength_q4(q);
+	len = sqrtf(q->w * q->w + q->x * q->x + q->y * q->y + q->z * q->z);//getLength_q4(q);
 	rst.w = q->w / len;
 	rst.x = q->x / len;
 	rst.y = q->y / len;
@@ -196,71 +197,82 @@ void initAlgoParam(AttitudeSensor *sensor)
 	sensor->ax_raw = sensor->ay_raw = sensor->az_raw = 0.0f;
 	sensor->gx_raw = sensor->gy_raw = sensor->gz_raw = 0.0f;
 	sensor->mx_raw = sensor->my_raw = sensor->mz_raw = 0.0f;
- 
+	
 	sensor->accSlideBuf.curPos = 0;
 	sensor->accSlideBuf.aveX = sensor->accSlideBuf.aveY  = sensor->accSlideBuf.aveZ = 0.0f; 
 	sensor->accSlideBuf.sumX = sensor->accSlideBuf.sumY = sensor->accSlideBuf.sumZ = 0.0f;
 	sensor->accSlideBuf.followPredictX = sensor->accSlideBuf.followPredictY = sensor->accSlideBuf.followPredictZ =0.0f;
+	
+	
+	sensor->gyrSlideBuf.curPos = 0;
+	sensor->gyrSlideBuf.aveX = sensor->gyrSlideBuf.aveY = sensor->gyrSlideBuf.aveZ = 0.0f; 
+	sensor->gyrSlideBuf.sumX = sensor->gyrSlideBuf.sumY = sensor->gyrSlideBuf.sumZ = 0.0f;
+	sensor->gyrSlideBuf.followPredictX = sensor->gyrSlideBuf.followPredictY = sensor->gyrSlideBuf.followPredictZ =0.0f;
+	
 	int i = 0;
 	for(i=0; i < SLIDE_BUF_LEN; i++)
 	{
 		sensor->accSlideBuf.x[i] = sensor->accSlideBuf.y[i] = sensor->accSlideBuf.z[i] = 0.0f; 
+		sensor->gyrSlideBuf.x[i] = sensor->gyrSlideBuf.y[i] = sensor->gyrSlideBuf.z[i] = 0.0f; 
 	} 
 	sensor->Acc_SlideAverage[0] = sensor->Acc_SlideAverage[1] = sensor->Acc_SlideAverage[2] = 0.0f;
 	sensor->Acc_SlideStable[0] = sensor->Acc_SlideStable[1] = sensor->Acc_SlideStable[2] = 0.0f ;
 	sensor->Acc_SlidePre[0] = sensor->Acc_SlidePre[1] = sensor->Acc_SlidePre[2] = 0.0f;  
-	sensor->Acc_SlideVariance[0] = sensor->Acc_SlideVariance[1] = sensor->Acc_SlideVariance[2] = 0.0f; 
+	sensor->Acc_SlideVariance[0] = sensor->Acc_SlideVariance[1] = sensor->Acc_SlideVariance[2] = 1.0f; 
+	
+	sensor->Gyr_SlideAverage[0] = sensor->Gyr_SlideAverage[1] = sensor->Gyr_SlideAverage[2] = 0.0f;
+	sensor->Gyr_SlideStable[0] = sensor->Gyr_SlideStable[1] = sensor->Gyr_SlideStable[2] = 0.0f ;
+	sensor->Gyr_SlidePre[0] = sensor->Gyr_SlidePre[1] = sensor->Gyr_SlidePre[2] = 0.0f;  
+	sensor->Gyr_SlideVariance[0] = sensor->Gyr_SlideVariance[1] = sensor->Gyr_SlideVariance[2] = 1.0f; 
 	
 	sensor->accJudgeWindow.FullArray = false;
 	sensor->accJudgeWindow.Idx = 0;
+	
+	sensor->gyrJudgeWindow.FullArray = false;
+	sensor->gyrJudgeWindow.Idx = 0;
 	for(i = 0; i < AccVarWindowSize; i++)
 	{
 		sensor->accJudgeWindow.judgeVal[i] = 1;
-	} 
-	sensor->GyroBias[0] = sensor->GyroBias[1] = sensor->GyroBias[2] =0.0f ; 
-	sensor->Ori.w = 1.0f; sensor->Ori.x = 0.0f; sensor->Ori.y = 0.0f; sensor->Ori.z = 0.0f;
-	sensor->AccWeight = 0.0f;
+		
+		sensor->gyrJudgeWindow.judgeVal[i][0] = 1;
+		sensor->gyrJudgeWindow.judgeVal[i][1] = 1;
+		sensor->gyrJudgeWindow.judgeVal[i][2] = 1;
+	}
+	
+	sensor->GyroBias.x = sensor->GyroBias.y = sensor->GyroBias.z =0.0f ; 
+	
+	sensor->Ori.w = 1.0f; 
+	sensor->Ori.x = 0.0f; 
+	sensor->Ori.y = 0.0f; 
+	sensor->Ori.z = 0.0f;
+	
+	sensor->AccWeight = 1.0f;
 	sensor->SamplePeriod = 0.0f;
+	sensor->GyrStable = false;
 	
-	sensor->ts_cur_ns = 0;
-	sensor->ts_prev_ns = 0;
+	sensor->ts_cur_ms = 0;
+	sensor->ts_prev_ms = 0;
+	  
 	
 	
+	sensor->MagFilterRatio = 0.02f ; 
 	return;
 }
-  
 
-int processRawData(AttitudeSensor *sensor){
+int processRawMag(AttitudeSensor *sensor)
+{
 	
-	
-	if(sensor->ts_prev_ns == sensor->ts_cur_ns)
-    { 
-        return 1; 
-    }
-	uint32_t dt ;
-    if(sensor->ts_prev_ns > sensor->ts_cur_ns) //prev is larger than current
-    {
-		dt = 4294967296.0 - sensor->ts_prev_ns + sensor->ts_cur_ns; 
-    }
-	else
-	{	
-		dt = sensor->ts_cur_ns - sensor->ts_prev_ns;
-	}
-	 
-    sensor->SamplePeriod = 0.000001f * dt;
-	
-	
+}
+
+int processRawAcc(AttitudeSensor *sensor)
+{
 	SampleSlideBuf *accBuf;
-	SampleSlideBuf *gyrBuf;
-
 	accBuf = &sensor->accSlideBuf; 
 	//gyrBuf = &sensor->gyrSlideBuf; 
 
-	float rawAcc[3], rawGyr[3];
+	float rawAcc[3];
 	rawAcc[0] = sensor->ax_raw; rawAcc[1] = sensor->ay_raw; rawAcc[2] = sensor->az_raw; 
-	rawGyr[0] = sensor->gx_raw; rawGyr[1] = sensor->gy_raw;	rawGyr[2] = sensor->gz_raw;
-
-
+	
 	int curPos = accBuf->curPos ;
 	int nextPos = curPos + 1 ;
 	if (nextPos==SLIDE_BUF_LEN)
@@ -271,7 +283,7 @@ int processRawData(AttitudeSensor *sensor){
 	int oldY = accBuf->y[nextPos] ;
 	int oldZ = accBuf->z[nextPos] ;
 
-	int ratio = 2;            //20;//LOW_PASS_RATIO ;  //??????????????,
+	int ratio = 50;            // LOW_PASS_RATIO = sampleRate/limit_freq (500/10);  //??????????????,
 	int ratio2 = ratio - 1 ;
   //LPF
 	accBuf->x[nextPos] = ( accBuf->x[curPos]*ratio2 + 1000*rawAcc[0] ) / ratio ;
@@ -301,6 +313,7 @@ int processRawData(AttitudeSensor *sensor){
 	sensor->Acc_SlideStable[1] = (accBuf->y[accBuf->curPos]) / 1000.0f;
 	sensor->Acc_SlideStable[2] = (accBuf->z[accBuf->curPos]) / 1000.0f;
 	
+	
 	sensor->Acc_SlidePre[0] = (accBuf->x[(accBuf->curPos + SLIDE_BUF_LEN -1)%SLIDE_BUF_LEN]) / 1000.0f;
 	sensor->Acc_SlidePre[1] = (accBuf->y[(accBuf->curPos + SLIDE_BUF_LEN -1)%SLIDE_BUF_LEN]) / 1000.0f;
 	sensor->Acc_SlidePre[2] = (accBuf->z[(accBuf->curPos + SLIDE_BUF_LEN -1)%SLIDE_BUF_LEN]) / 1000.0f;
@@ -327,7 +340,7 @@ int processRawData(AttitudeSensor *sensor){
 	
 //Fill in AccJudgeWindow	 
 	{
-		if( getLength(sensor->Acc_SlideVariance) > AccVar_StaticThreshold)
+		if( getLength(sensor->Acc_SlideVariance) > 0.005) //AccVar_StaticThreshold)
 		{
 			sensor->accJudgeWindow.judgeVal[sensor->accJudgeWindow.Idx] = 1; 
 		}
@@ -344,112 +357,292 @@ int processRawData(AttitudeSensor *sensor){
 			}
 			sensor->accJudgeWindow.Idx = 0;
 		}
-	}
-	
+	} 
 //Make judgement basing on values in AccJudgeWindow	
 	{
-		
+		if(sensor->accJudgeWindow.FullArray)
+		{
+			int judge;
+			judge = 0;
+			int i = 0;
+			for(int i = 0; i < AccVarWindowSize; i++)
+			{
+				judge += sensor->accJudgeWindow.judgeVal[i];
+			}		
+			if(judge == 0)
+			{
+				 sensor->AccWeight = 1;
+			}
+			else
+			{
+				sensor->AccWeight = 0;	
+			}
+        } 
 	}
+
+	return 0;
+}	
+
+
+int processRawGyr(AttitudeSensor *sensor)
+{
+	SampleSlideBuf *gyrBuf;  
+	gyrBuf = &sensor->gyrSlideBuf; 
+
+		float Gyr[3];
+	Gyr[0] = sensor->gx_raw - sensor->GyroBias.x; 
+	Gyr[1] = sensor->gy_raw - sensor->GyroBias.y;
+	Gyr[2] = sensor->gz_raw - sensor->GyroBias.z;
+
+
+	int curPos = gyrBuf->curPos ;
+	int nextPos = curPos + 1 ;
+	if (nextPos == SLIDE_BUF_LEN)
+		nextPos = 0 ;
+
+	//Last Value in Buffer -- to eliminate
+	int oldX = gyrBuf->x[nextPos] ;
+	int oldY = gyrBuf->y[nextPos] ;
+	int oldZ = gyrBuf->z[nextPos] ;
+
+	int ratio = 2;            //20;//LOW_PASS_RATIO ;  //??????????????,
+	int ratio2 = ratio - 1 ;
+  //LPF
+	gyrBuf->x[nextPos] = ( gyrBuf->x[curPos]*ratio2 + 1000* Gyr[0] ) / ratio ;
+	gyrBuf->y[nextPos] = ( gyrBuf->y[curPos]*ratio2 + 1000* Gyr[1] ) / ratio ;
+	gyrBuf->z[nextPos] = ( gyrBuf->z[curPos]*ratio2 + 1000* Gyr[2] ) / ratio ;
+	gyrBuf->curPos = nextPos ;
+	//Update sum, moving average and follow update
+
+	int32_t deltaX = gyrBuf->x[nextPos] - oldX ;
+	int32_t deltaY = gyrBuf->y[nextPos] - oldY ;
+	int32_t deltaZ = gyrBuf->z[nextPos] - oldZ ;
+
+	gyrBuf->sumX += deltaX ;
+	gyrBuf->sumY += deltaY ;
+	gyrBuf->sumZ += deltaZ ;
+
+	gyrBuf->aveX = (gyrBuf->sumX) / (SLIDE_BUF_LEN) ;
+	gyrBuf->aveY = (gyrBuf->sumY) / (SLIDE_BUF_LEN) ;
+	gyrBuf->aveZ = (gyrBuf->sumZ) / (SLIDE_BUF_LEN) ;
+	
+	gyrBuf->followPredictX = gyrBuf->aveX + deltaX ;
+	gyrBuf->followPredictY = gyrBuf->aveY + deltaY ;
+	gyrBuf->followPredictZ = gyrBuf->aveZ + deltaZ ;
+	
+	// after LPF
+	sensor->Gyr_SlideStable[0] = (gyrBuf->x[gyrBuf->curPos]) / 1000.0f;
+	sensor->Gyr_SlideStable[1] = (gyrBuf->y[gyrBuf->curPos]) / 1000.0f;
+	sensor->Gyr_SlideStable[2] = (gyrBuf->z[gyrBuf->curPos]) / 1000.0f;
+	
+	sensor->Gyr_SlidePre[0] = (gyrBuf->x[(gyrBuf->curPos + SLIDE_BUF_LEN -1)%SLIDE_BUF_LEN]) / 1000.0f;
+	sensor->Gyr_SlidePre[1] = (gyrBuf->y[(gyrBuf->curPos + SLIDE_BUF_LEN -1)%SLIDE_BUF_LEN]) / 1000.0f;
+	sensor->Gyr_SlidePre[2] = (gyrBuf->z[(gyrBuf->curPos + SLIDE_BUF_LEN -1)%SLIDE_BUF_LEN]) / 1000.0f;
+	
+	sensor->Gyr_SlideAverage[0] = (gyrBuf->aveX) / 1000.0f;
+	sensor->Gyr_SlideAverage[1] = (gyrBuf->aveY) / 1000.0f;
+	sensor->Gyr_SlideAverage[2] = (gyrBuf->aveZ) / 1000.0f;	 
+	
+	int i ;
+	float tmp_Var[3] = {0.0f, 0.0f, 0.0f};
+  
+	for (i=0; i<SLIDE_BUF_LEN; i++)
+	{
+		float tmp[3] = {(gyrBuf->x[i])/1000.0f - sensor->Gyr_SlideAverage[0], 
+										(gyrBuf->y[i])/1000.0f - sensor->Gyr_SlideAverage[1], 
+										(gyrBuf->z[i])/1000.0f - sensor->Gyr_SlideAverage[2]};
+		tmp_Var[0] += tmp[0] * tmp[0];
+		tmp_Var[1] += tmp[1] * tmp[1];
+		tmp_Var[2] += tmp[2] * tmp[2];
+	}
+	sensor->Gyr_SlideVariance[0] = tmp_Var[0] / SLIDE_BUF_LEN;
+	sensor->Gyr_SlideVariance[1] = tmp_Var[1] / SLIDE_BUF_LEN;
+	sensor->Gyr_SlideVariance[2] = tmp_Var[2] / SLIDE_BUF_LEN;
+	
+//Fill in GyrJudgeWindow	 
+	{
+		////X Axis
+		if( (sensor->Gyr_SlideVariance[0]) > 0.0000025)       // GyrVar_StaticThreshold )
+		{
+			sensor->gyrJudgeWindow.judgeVal[sensor->gyrJudgeWindow.Idx][0] = 1; 
+		}
+		else
+		{
+			sensor->gyrJudgeWindow.judgeVal[sensor->gyrJudgeWindow.Idx][0] = 0;
+		}
+		////Y Axis
+		if( (sensor->Gyr_SlideVariance[1]) >  0.0000025)       // GyrVar_StaticThreshold)
+		{
+			sensor->gyrJudgeWindow.judgeVal[sensor->gyrJudgeWindow.Idx][1] = 1; 
+		}
+		else
+		{
+			sensor->gyrJudgeWindow.judgeVal[sensor->gyrJudgeWindow.Idx][1] = 0;
+		}
+		////Z Axis
+		if( (sensor->Gyr_SlideVariance[2]) >  0.0000025)       // GyrVar_StaticThreshold )
+		{
+			sensor->gyrJudgeWindow.judgeVal[sensor->gyrJudgeWindow.Idx][2] = 1; 
+		}
+		else
+		{
+			sensor->gyrJudgeWindow.judgeVal[sensor->gyrJudgeWindow.Idx][2] = 0;
+		} 
+		sensor->gyrJudgeWindow.Idx++;
+		if(sensor->gyrJudgeWindow.Idx == GyrVarWindowSize)
+		{
+			if(!sensor->gyrJudgeWindow.FullArray)
+			{
+				sensor->gyrJudgeWindow.FullArray = true;
+			}
+			sensor->gyrJudgeWindow.Idx = 0;
+		}
+	} 
+//Make judgement basing on values in AccJudgeWindow	
+	{
+		if(sensor->gyrJudgeWindow.FullArray)
+		{
+			int judge[3] = {0,0,0} ; 
+			int i = 0;
+			for(int i = 0; i < GyrVarWindowSize; i++)
+			{
+				judge[0] += sensor->gyrJudgeWindow.judgeVal[i][0];
+				judge[1] += sensor->gyrJudgeWindow.judgeVal[i][1];
+				judge[2] += sensor->gyrJudgeWindow.judgeVal[i][2];
+			}		
+			if(judge[0] == 0)
+			{
+				sensor->GyroBias.x += sensor->Gyr_SlideAverage[0];
+				sensor->Gyr_SlideStable[0] = 0;
+			}
+			if(judge[1] == 0)
+			{
+				sensor->GyroBias.y += sensor->Gyr_SlideAverage[1];
+					sensor->Gyr_SlideStable[1] = 0;
+			//sensor->gy = 0;	
+			}
+			if(judge[2] == 0)
+			{
+				sensor->GyroBias.z += sensor->Gyr_SlideAverage[2];
+					sensor->Gyr_SlideStable[2] = 0;
+			//sensor->gz = 0;	
+			} 
+        } 
+	}
+//	NRF_LOG_PRINTF("GYR BIAS: %8.7f %8.7f %8.7f \n\n\n",sensor->Gyr_SlideVariance[0], sensor->Gyr_SlideVariance[1], sensor->Gyr_SlideVariance[2]);
+//NRF_LOG_PRINTF("GYR BIAS: %8.7f %8.7f %8.7f \n\n\n",sensor->GyroBias.x, sensor->GyroBias.y, sensor->GyroBias.z);
+	
+	
+	return 0;
+}	
+
+int processRawData(AttitudeSensor *sensor){
+
+	processRawAcc(sensor);
+	processRawGyr(sensor);  
 	return 0;
 } 
 
 
 
 void MahonyAHRS(AttitudeSensor * sensor)
-{
-	if(sensor->ax_raw == sensor->ay_raw == sensor->az_raw == 0.0f)
-		return;
-	Quaternion q;
-	q.w = sensor->Ori.w;
-	q.x = sensor->Ori.x;
-	q.y = sensor->Ori.y;
-	q.z = sensor->Ori.z; 
-	 
-	Vector3D EstimateG;
-	
-    EstimateG.x = 2 * (q.x * q.z - q.w * q.y);
-    EstimateG.y = 2 * (q.w * q.x + q.y * q.z);
-    EstimateG.z = q.w*q.w - q.x*q.x - q.y*q.y + q.z*q.z;
-	
-	
+{ 
 	Vector3D raw_Acc, raw_Mag, raw_Gyr;
-	raw_Acc.x = sensor->ax_raw; 
-	raw_Acc.y = sensor->ay_raw; 
-	raw_Acc.z = sensor->az_raw;
+	raw_Acc.x = sensor->Acc_SlideStable[0];//ax; 
+	raw_Acc.y = sensor->Acc_SlideStable[1];//ay; 
+	raw_Acc.z = sensor->Acc_SlideStable[2];//az;
 	raw_Mag.x = sensor->mx_raw;
 	raw_Mag.y = sensor->my_raw;
 	raw_Mag.z = sensor->mz_raw;
-	raw_Gyr.x = sensor->gx_raw;
-	raw_Gyr.y = sensor->gy_raw;
-	raw_Gyr.z = sensor->gz_raw;
+	raw_Gyr.x = sensor->Gyr_SlideStable[0] ;//- sensor->GyroBias.x;  //gx ;//- sensor->GyroBias.x;
+	raw_Gyr.y = sensor->Gyr_SlideStable[1] ;//- sensor->GyroBias.y; //gy ; //- sensor->GyroBias.y;
+	raw_Gyr.z = sensor->Gyr_SlideStable[2] ;//- sensor->GyroBias.z; //gz ; //- sensor->GyroBias.z;
 	
-	Vector3D acc_norm = getNormalized_v3(&raw_Acc);
-	Vector3D mag_norm = getNormalized_v3(&raw_Mag);
-    
-	float DotVal = Dot(&EstimateG, &acc_norm);
+	if(getLength_v3(&raw_Acc) == 0.0f || getLength_v3(&raw_Mag) == 0.0f)
+		return;
+	
+	Quaternion q_prev;
+	q_prev.w = sensor->Ori.w;
+	q_prev.x = sensor->Ori.x;
+	q_prev.y = sensor->Ori.y;
+	q_prev.z = sensor->Ori.z; 
 
-// Reference direction of Earth's magnetic feild
-    Vector3D h = rotVbyQ(&raw_Mag, &q);
-    float b2 = sqrtf(h.x *h.x  + h.y *h.y );
-    float b4 = h.z ;
+	Quaternion q, deltaQ, qgyr, qtmp, rstQ;
+
+/////Add Mahony 
+	Vector3D EstimateG;
+	
+    EstimateG.x = 2 * (q_prev.x * q_prev.z - q_prev.w * q_prev.y);
+    EstimateG.y = 2 * (q_prev.w * q_prev.x + q_prev.y * q_prev.z);
+    EstimateG.z = q_prev.w*q_prev.w - q_prev.x*q.x - q_prev.y*q_prev.y + q_prev.z*q_prev.z; 
+	Vector3D acc_norm = getNormalized_v3(&raw_Acc);
+
+
  // Estimated direction of gravity and magnetic field
     Vector3D v,w;
-	float x,y,z;
-    x = 2 * (q.x * q.z - q.w * q.y);
-    y = 2 * (q.w * q.x + q.y * q.z);
-    z = q.w * q.w - q.x * q.x - q.y * q.y + q.z * q.z;
-    
-	v.x = x;
-	v.y = y;
-	v.z = z;
-    x = 2 * b2 * (0.5f - q.y*q.y - q.z*q.z) + 2 * b4 *(q.x * q.z - q.w * q.y);
-    y = 2 * b2 * (q.x * q.y - q.w * q.z) + 2 * b4 * (q.w * q.x + q.y * q.z);
-    z = 2 * b2 * (q.w * q.y + q.x * q.z) + 2 * b4 * (0.5f - q.x*q.x - q.y * q.y);
-    w.x = x;
-	w.y = y;
-	w.z = z;
-//Error is sum of cross product between estimated direction and measured direction of fields
-	Vector3D accErr, magErr, err;
-	accErr = Cross(&acc_norm, &v);
-	magErr = Cross(&mag_norm, &w);
-	err.x = sensor->AccWeight * accErr.x + magErr.x;
-	err.y = sensor->AccWeight * accErr.y + magErr.y;
-	err.z = sensor->AccWeight * accErr.z + magErr.z;
+	//float x,y,z;
+    v.x = 2 * (q_prev.x * q_prev.z - q_prev.w * q_prev.y);
+    v.y = 2 * (q_prev.w * q_prev.x + q_prev.y * q_prev.z);
+    v.z = q_prev.w * q_prev.w - q_prev.x * q_prev.x - q_prev.y * q_prev.y + q_prev.z * q_prev.z;
 
-	float Kp = 2.0f;
+ 
+//Error is sum of cross product between estimated direction and measured direction of fields
+	Vector3D accErr, magErr, err; 
+	 
+	accErr.x = (acc_norm.y * v.z - acc_norm.z * v.y);
+	accErr.y = (acc_norm.z * v.x - acc_norm.x * v.z);
+	accErr.z = (acc_norm.x * v.y - acc_norm.y * v.x);
 	
+	/*sensor->AccWeight * */
+	err.x = accErr.x * sensor->AccWeight;//+ magErr.x;
+	err.y = accErr.y * sensor->AccWeight;//+ magErr.y;
+	err.z = accErr.z * sensor->AccWeight;//+ magErr.z;
+ 
+	float Kp = 1.0f;
+
 	// Apply feedback terms
 	Vector3D revised_gyr;
 	revised_gyr.x = raw_Gyr.x + Kp * err.x;
 	revised_gyr.y = raw_Gyr.y + Kp * err.y;
 	revised_gyr.z = raw_Gyr.z + Kp * err.z;
+
+	
+	qgyr.w = 0;
+	qgyr.x = revised_gyr.x;
+	qgyr.y = revised_gyr.y;
+	qgyr.z = revised_gyr.z;
+	
+	qtmp.w = 0.5 * q_prev.w;
+	qtmp.x = 0.5 * q_prev.x;
+	qtmp.y = 0.5 * q_prev.y;
+	qtmp.z = 0.5 * q_prev.z; 
 	 
-	//Compute rate of change of quaternion
-    Quaternion qDot, tmp1,tmp2,q_gyr;
-	q_gyr.w = 0.0f;
-	q_gyr.x = revised_gyr.x;
-	q_gyr.y = revised_gyr.y;
-	q_gyr.z = revised_gyr.z;
 	
-	tmp1.w = 0.5f * q.w;
-	tmp1.x = 0.5f * q.x;
-	tmp1.y = 0.5f * q.y;
-	tmp1.z = 0.5f * q.z;
-	qDot = quaternionMult(&tmp1, &q_gyr); 
-// Integrate to yield quaternion	
-	tmp2.w = q.w + qDot.w * sensor->SamplePeriod;
-	tmp2.x = q.x + qDot.x * sensor->SamplePeriod;
-	tmp2.y = q.y + qDot.y * sensor->SamplePeriod;
-	tmp2.z = q.z + qDot.z * sensor->SamplePeriod;
+	deltaQ = quaternionMult(&qtmp, &qgyr);
+	float dt = sensor->SamplePeriod;	
+	deltaQ.w = deltaQ.w * dt;
+	deltaQ.x = deltaQ.x * dt;
+	deltaQ.y = deltaQ.y * dt;
+	deltaQ.z = deltaQ.z * dt;
  
-    q = getNormalized_q4(&tmp2);
+	q.w = q_prev.w + deltaQ.w;
+	q.x = q_prev.x + deltaQ.x;
+	q.y = q_prev.y + deltaQ.y;
+	q.z = q_prev.z + deltaQ.z;
+	sensor->Ori =  getNormalized_q4(&q);
+
+//NRF_LOG_PRINTF("RAW_GYR: %5.4f %5.4f %5.4f \n\n\n",raw_Acc.x,raw_Acc.y,raw_Acc.z);
+
+return;
+ 
+	 
+	Vector3D mag_norm = getNormalized_v3(&raw_Mag);
+// Reference direction of Earth's magnetic feild
+    Vector3D h = rotVbyQ(&raw_Mag, &q);	
+    float b2 = sqrtf(h.x *h.x  + h.y *h.y );
+    float b4 = h.z ;
 	
-	sensor->Ori.w = q.w;
-	sensor->Ori.x = q.x;
-	sensor->Ori.y = q.y;
-	sensor->Ori.z = q.z;
-	
-	return;
+   
 }
 
 void processData(AttitudeSensor * sensor)
