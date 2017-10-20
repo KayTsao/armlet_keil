@@ -259,11 +259,11 @@ void initAlgoParam(AttitudeSensor *sensor)
     sensor->Mag_Filtered[0] = sensor->Mag_Filtered[1] = sensor->Mag_Filtered[2] = 0.0f;
 	sensor->MagFilterRatio = 0.02f ; 
 	
-	sensor->Mag_Scale[0] = 1.0382f;
-	sensor->Mag_Scale[1] = 1.0311f;
+	sensor->Mag_Scale[0] = 1.062f;
+	sensor->Mag_Scale[1] = 1.0367f;
 	sensor->Mag_Scale[2] = 1.0f; 
-	sensor->Mag_Bias[0] = -0.0135f; 
-	sensor->Mag_Bias[1] = -0.018f; 
+	sensor->Mag_Bias[0] = -0.034f; 
+	sensor->Mag_Bias[1] = 0.0595f; 
 	sensor->Mag_Bias[2] = 0.0f; 
 /*	
 0.548188 -0.089588 0.0
@@ -274,38 +274,39 @@ void initAlgoParam(AttitudeSensor *sensor)
 }
 
 int processRawMag(AttitudeSensor *s)
-{
+{ 
 	float Mag[3]; 
-	Mag[0] = s->Mag_Scale[0] * (s->mx_raw - s->Mag_Bias[0]); 
-	Mag[1] = s->Mag_Scale[1] * (s->my_raw - s->Mag_Bias[1]); 
-	Mag[2] = s->Mag_Scale[2] * (s->mz_raw - s->Mag_Bias[2]); 
- 
-	if(s->accSamplesCount % s->MagSampleSpan == 0)
-	{
-		float Ax, Ay, Az ;
-        float Mx, My, Mz ;
-        float  x,  y,  z ;
-        float  ratio = 0.02f;  //MagFilterRatio = 0.02f ;
-        x = s->Mag_Filtered[0] - Mag[0] ;
-        y = s->Mag_Filtered[1] - Mag[1];
-        z = s->Mag_Filtered[2] - Mag[2] ;
-		
-		float d = sqrt(x*x+y*y+z*z);
-        
-		if ( d < 0.05f * 0.5 )
-			ratio = 0.01f ;
-		else if ( d < 0.1f * 0.5 )
-			ratio = 0.02f ;
-		else if ( d < 0.25f * 0.5 )
-			ratio = 0.1f ;
-		else
-			ratio = 0.2f ;
-		s->Mag_Filtered[0] = s->Mag_Filtered[0] * (1.0f - ratio) + Mag[0] * ratio ;
-		s->Mag_Filtered[1] = s->Mag_Filtered[1] * (1.0f - ratio) + Mag[1] * ratio ;
-		s->Mag_Filtered[2] = s->Mag_Filtered[2] * (1.0f - ratio) + Mag[2] * ratio ; 	
-	}  
+	Mag[0] = s->mx_raw * 64.0f; 
+	Mag[1] = s->my_raw * 64.0f;
+	Mag[2] = s->mz_raw * 64.0f; 
+
+	Mag[0] = s->Mag_Scale[0] * (Mag[0] - s->Mag_Bias[0]); 
+	Mag[1] = s->Mag_Scale[1] * (Mag[1] - s->Mag_Bias[1]); 
+	Mag[2] = s->Mag_Scale[2] * (Mag[2] - s->Mag_Bias[2]); 
+
+	float Ax, Ay, Az ;
+	float Mx, My, Mz ;
+	float  x,  y,  z ;
+	float  ratio = 0.02f;  //MagFilterRatio = 0.02f ;
+	x = s->Mag_Filtered[0] - Mag[0] ;
+	y = s->Mag_Filtered[1] - Mag[1];
+	z = s->Mag_Filtered[2] - Mag[2] ;
+
+	float d = sqrt(x*x+y*y+z*z);
+
+	if ( d < 0.05f * 0.5 )
+		ratio = 0.01f ;
+	else if ( d < 0.1f * 0.5 )
+		ratio = 0.02f ;
+	else if ( d < 0.25f * 0.5 )
+		ratio = 0.1f ;
+	else
+		ratio = 0.2f ;
+	s->Mag_Filtered[0] = s->Mag_Filtered[0] * (1.0f - ratio) + Mag[0] * ratio ;
+	s->Mag_Filtered[1] = s->Mag_Filtered[1] * (1.0f - ratio) + Mag[1] * ratio ;
+	s->Mag_Filtered[2] = s->Mag_Filtered[2] * (1.0f - ratio) + Mag[2] * ratio ; 	
+
 	return 0;
-	
 }
 
 int processRawAcc(AttitudeSensor *sensor)
@@ -573,21 +574,21 @@ int processRawGyr(AttitudeSensor *sensor)
 			//sensor->gz = 0;	
 			} 
         } 
-	}
-//	NRF_LOG_PRINTF("GYR BIAS: %8.7f %8.7f %8.7f \n\n\n",sensor->Gyr_SlideVariance[0], sensor->Gyr_SlideVariance[1], sensor->Gyr_SlideVariance[2]);
-//NRF_LOG_PRINTF("GYR BIAS: %8.7f %8.7f %8.7f \n\n\n",sensor->GyroBias.x, sensor->GyroBias.y, sensor->GyroBias.z);
-	
-	
+	}	
 	return 0;
 }	
 
 int processRawData(AttitudeSensor *sensor){
 
 	processRawAcc(sensor);
-	processRawGyr(sensor); 
-	processRawMag(sensor);  
+	processRawGyr(sensor);
+	if(sensor->accSamplesCount % sensor->MagSampleSpan == 0)
+	{
+		processRawMag(sensor);
+	}		
 	return 0;
 } 
+
 
 
 
@@ -597,9 +598,9 @@ void MahonyAHRS(AttitudeSensor * sensor)
 	raw_Acc.x = sensor->Acc_SlideStable[0];//ax; 
 	raw_Acc.y = sensor->Acc_SlideStable[1];//ay; 
 	raw_Acc.z = sensor->Acc_SlideStable[2];//az;
-	raw_Mag.x = sensor->mx_raw;
-	raw_Mag.y = sensor->my_raw;
-	raw_Mag.z = sensor->mz_raw;
+	raw_Mag.x = sensor->Mag_Filtered[0];
+	raw_Mag.y = sensor->Mag_Filtered[1];
+	raw_Mag.z = sensor->Mag_Filtered[2];
 	raw_Gyr.x = sensor->Gyr_SlideStable[0] ;//- sensor->GyroBias.x;  //gx ;//- sensor->GyroBias.x;
 	raw_Gyr.y = sensor->Gyr_SlideStable[1] ;//- sensor->GyroBias.y; //gy ; //- sensor->GyroBias.y;
 	raw_Gyr.z = sensor->Gyr_SlideStable[2] ;//- sensor->GyroBias.z; //gz ; //- sensor->GyroBias.z;
@@ -615,36 +616,54 @@ void MahonyAHRS(AttitudeSensor * sensor)
 	q_prev.z = sensor->Ori.z; 
 
 	Quaternion q, deltaQ, qgyr, qtmp, rstQ;
-
-/////Add Mahony 
+	Vector3D accErr, magErr, err;
+///////Acc Part
 	Vector3D EstimateG;
     EstimateG.x = 2 * (q_prev.x * q_prev.z - q_prev.w * q_prev.y);
     EstimateG.y = 2 * (q_prev.w * q_prev.x + q_prev.y * q_prev.z);
-    EstimateG.z = q_prev.w*q_prev.w - q_prev.x*q.x - q_prev.y*q_prev.y + q_prev.z*q_prev.z; 
-	Vector3D acc_norm = getNormalized_v3(&raw_Acc);
-
-
- // Estimated direction of gravity and magnetic field
-    Vector3D v,w;
-	//float x,y,z;
-    v.x = 2 * (q_prev.x * q_prev.z - q_prev.w * q_prev.y);
-    v.y = 2 * (q_prev.w * q_prev.x + q_prev.y * q_prev.z);
-    v.z = q_prev.w * q_prev.w - q_prev.x * q_prev.x - q_prev.y * q_prev.y + q_prev.z * q_prev.z;
-
- 
-//Error is sum of cross product between estimated direction and measured direction of fields
-	Vector3D accErr, magErr, err; 
-	 
-	accErr.x = (acc_norm.y * v.z - acc_norm.z * v.y);
-	accErr.y = (acc_norm.z * v.x - acc_norm.x * v.z);
-	accErr.z = (acc_norm.x * v.y - acc_norm.y * v.x);
+    EstimateG.z = q_prev.w * q_prev.w - q_prev.x * q_prev.x - q_prev.y * q_prev.y + q_prev.z * q_prev.z; 
+	Vector3D acc_norm = getNormalized_v3(&raw_Acc); 
+	accErr = Cross(&acc_norm, &EstimateG);  
+///////Mag Part 
 	
-	/*sensor->AccWeight * */
-	err.x = accErr.x * sensor->AccWeight;//+ magErr.x;
-	err.y = accErr.y * sensor->AccWeight;//+ magErr.y;
-	err.z = accErr.z * sensor->AccWeight;//+ magErr.z;
- 
+	
+	Vector3D mag_norm = getNormalized_v3(&raw_Mag);
+	// Reference direction of Earth's magnetic feild 
+    Vector3D h = rotVbyQ(&mag_norm, &q_prev);
+	float b2 = sqrtf(h.x * h.x + h.y * h.y);
+	float b4 = h.z; 
+	Vector3D EstimateM;
+	// Estimated direction of magnetic field
+    EstimateM.x = 2 * b2 * (0.5 - q_prev.y * q_prev.y - q_prev.z *q_prev.z) + 2 * b4 * (q_prev.x * q_prev.z - q_prev.w * q_prev.y);
+    EstimateM.y = 2 * b2 * (q_prev.x * q_prev.y - q_prev.w * q_prev.z) + 2 * b4 * (q_prev.w * q_prev.x + q_prev.y * q_prev.z);
+    EstimateM.z = 2 * b2 * (q_prev.w * q_prev.y + q_prev.x * q_prev.z) + 2 * b4 * (0.5 - q_prev.x * q_prev.x - q_prev.y * q_prev.y);
+	magErr = Cross(&mag_norm, &EstimateM); 
+	
+	float sinAlpha = getLength_v3(&magErr);
+    float rad = asinf(sinAlpha);
+    float deg = rad * 57.3;
+	
+	
 	float Kp = 1.0f;
+
+    if((deg < 5.0 && deg > -5.0))
+    {
+        magErr.x = magErr.y = magErr.z = 0.0;
+    }
+    else
+    {
+		//if(deg > 10 || deg < -10)
+		//{
+			Kp = 10.0f;
+		//}
+			
+    }
+	//Error is sum of cross product between estimated direction and measured direction of fields
+	err.x = sensor->AccWeight * (accErr.x + magErr.x);
+	err.y = sensor->AccWeight * (accErr.y + magErr.y);
+	err.z = sensor->AccWeight * (accErr.z + magErr.z);
+ 
+
 
 	// Apply feedback terms
 	Vector3D revised_gyr;
@@ -680,14 +699,6 @@ void MahonyAHRS(AttitudeSensor * sensor)
 //NRF_LOG_PRINTF("RAW_GYR: %5.4f %5.4f %5.4f \n\n\n",raw_Acc.x,raw_Acc.y,raw_Acc.z);
 
 return;
- 
-	 
-	Vector3D mag_norm = getNormalized_v3(&raw_Mag);
-// Reference direction of Earth's magnetic feild
-    Vector3D h = rotVbyQ(&raw_Mag, &q);	
-    float b2 = sqrtf(h.x *h.x  + h.y *h.y );
-    float b4 = h.z ;
-	
    
 }
 
