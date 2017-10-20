@@ -253,14 +253,58 @@ void initAlgoParam(AttitudeSensor *sensor)
 	sensor->ts_cur_ms = 0;
 	sensor->ts_prev_ms = 0;
 	  
-	
-	
+	sensor->accSamplesCount = 0; 
+    sensor->MagSampleSpan = 5;    //(mag 100Hz IMU 500HZ --> 1:5)
+
+    sensor->Mag_Filtered[0] = sensor->Mag_Filtered[1] = sensor->Mag_Filtered[2] = 0.0f;
 	sensor->MagFilterRatio = 0.02f ; 
+	
+	sensor->Mag_Scale[0] = 1.0382f;
+	sensor->Mag_Scale[1] = 1.0311f;
+	sensor->Mag_Scale[2] = 1.0f; 
+	sensor->Mag_Bias[0] = -0.0135f; 
+	sensor->Mag_Bias[1] = -0.018f; 
+	sensor->Mag_Bias[2] = 0.0f; 
+/*	
+0.548188 -0.089588 0.0
+0.523096 0.265903 0.0
+0.509748 -0.008840 0.0
+*/
 	return;
 }
 
-int processRawMag(AttitudeSensor *sensor)
+int processRawMag(AttitudeSensor *s)
 {
+	float Mag[3]; 
+	Mag[0] = s->Mag_Scale[0] * (s->mx_raw - s->Mag_Bias[0]); 
+	Mag[1] = s->Mag_Scale[1] * (s->my_raw - s->Mag_Bias[1]); 
+	Mag[2] = s->Mag_Scale[2] * (s->mz_raw - s->Mag_Bias[2]); 
+ 
+	if(s->accSamplesCount % s->MagSampleSpan == 0)
+	{
+		float Ax, Ay, Az ;
+        float Mx, My, Mz ;
+        float  x,  y,  z ;
+        float  ratio = 0.02f;  //MagFilterRatio = 0.02f ;
+        x = s->Mag_Filtered[0] - Mag[0] ;
+        y = s->Mag_Filtered[1] - Mag[1];
+        z = s->Mag_Filtered[2] - Mag[2] ;
+		
+		float d = sqrt(x*x+y*y+z*z);
+        
+		if ( d < 0.05f * 0.5 )
+			ratio = 0.01f ;
+		else if ( d < 0.1f * 0.5 )
+			ratio = 0.02f ;
+		else if ( d < 0.25f * 0.5 )
+			ratio = 0.1f ;
+		else
+			ratio = 0.2f ;
+		s->Mag_Filtered[0] = s->Mag_Filtered[0] * (1.0f - ratio) + Mag[0] * ratio ;
+		s->Mag_Filtered[1] = s->Mag_Filtered[1] * (1.0f - ratio) + Mag[1] * ratio ;
+		s->Mag_Filtered[2] = s->Mag_Filtered[2] * (1.0f - ratio) + Mag[2] * ratio ; 	
+	}  
+	return 0;
 	
 }
 
@@ -380,6 +424,7 @@ int processRawAcc(AttitudeSensor *sensor)
         } 
 	}
 
+	sensor->accSamplesCount++;
 	return 0;
 }	
 
@@ -389,7 +434,7 @@ int processRawGyr(AttitudeSensor *sensor)
 	SampleSlideBuf *gyrBuf;  
 	gyrBuf = &sensor->gyrSlideBuf; 
 
-		float Gyr[3];
+	float Gyr[3];
 	Gyr[0] = sensor->gx_raw - sensor->GyroBias.x; 
 	Gyr[1] = sensor->gy_raw - sensor->GyroBias.y;
 	Gyr[2] = sensor->gz_raw - sensor->GyroBias.z;
@@ -539,7 +584,8 @@ int processRawGyr(AttitudeSensor *sensor)
 int processRawData(AttitudeSensor *sensor){
 
 	processRawAcc(sensor);
-	processRawGyr(sensor);  
+	processRawGyr(sensor); 
+	processRawMag(sensor);  
 	return 0;
 } 
 
@@ -562,6 +608,7 @@ void MahonyAHRS(AttitudeSensor * sensor)
 		return;
 	
 	Quaternion q_prev;
+	
 	q_prev.w = sensor->Ori.w;
 	q_prev.x = sensor->Ori.x;
 	q_prev.y = sensor->Ori.y;
@@ -571,7 +618,6 @@ void MahonyAHRS(AttitudeSensor * sensor)
 
 /////Add Mahony 
 	Vector3D EstimateG;
-	
     EstimateG.x = 2 * (q_prev.x * q_prev.z - q_prev.w * q_prev.y);
     EstimateG.y = 2 * (q_prev.w * q_prev.x + q_prev.y * q_prev.z);
     EstimateG.z = q_prev.w*q_prev.w - q_prev.x*q.x - q_prev.y*q_prev.y + q_prev.z*q_prev.z; 

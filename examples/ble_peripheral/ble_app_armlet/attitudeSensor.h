@@ -111,6 +111,7 @@ typedef struct {
 
 typedef struct AttitudeSensor_t
 { 
+	float testOutPut[4];
 	//KK add code
 	float ax_raw, ay_raw, az_raw;
 	float gx_raw, gy_raw, gz_raw;
@@ -129,7 +130,8 @@ typedef struct AttitudeSensor_t
 	float Gyr_SlidePre[3];  
 	float Gyr_SlideVariance[3];  
 	JudgeWindow_V3 gyrJudgeWindow;
- 
+  
+	
 	uint32_t ts_cur_ms;
 	uint32_t ts_prev_ms;
 	float SamplePeriod;
@@ -141,7 +143,15 @@ typedef struct AttitudeSensor_t
 		
 	Quaternion Ori; 
 	
-	float testOutPut[4];
+	
+	int accSamplesCount;
+	int MagSampleSpan;    //(mag 100Hz IMU 500HZ --> 1:5)
+
+	
+	// 磁场计低通滤波
+	float Mag_Filtered[3]; 
+	float Mag_Scale[3];
+	float Mag_Bias[3];
 	
 
 float MagFilterRatio;
@@ -149,11 +159,7 @@ float MagFilterRatio;
 	//  Float G_Variance; 
 
 
-	// 磁场计低通滤波
-	int16_t filtered_mx ;
-	int16_t filtered_my ;
-	int16_t filtered_mz ;
-
+ 
 	// 磁场水平分量滤波值
 	float  filtered_Hmx ;
 	float  filtered_Hmy ;
@@ -178,7 +184,7 @@ float MagFilterRatio;
 	int16_t MagOffset[3] ;
 	float MagRatio[3] ; 
 	void(*sample)() ; 
-	int accSamplesCount ;                // 记录陀螺和加速度计的采样次数 
+	//int accSamplesCount ;                // 记录陀螺和加速度计的采样次数 
 	int M_sample_Period ;         // 磁场的采样周期要慢。这个值代表没采样多少次陀螺仪，才采样一次磁场计。   
 
 	uint32_t cur_t_us; 
