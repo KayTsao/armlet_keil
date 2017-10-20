@@ -731,18 +731,8 @@ static uint32_t SendPKG()
 //	out_z = (int32_t) (SensorNode1.Acc_SlideStable[2] * 1000.0f);
 	stream_putbits(&stream, out_x, 16);	//GYRO X
 	stream_putbits(&stream, out_y, 16);	//GYRO Y
-	stream_putbits(&stream, out_z, 16);	//GYRO Z
- 
-//    out_w = (int32_t) (SensorNode1.Ori.w * 10000.0f);
-//	out_x = (int32_t) (SensorNode1.Ori.x * 10000.0f);
-//	out_y = (int32_t) (SensorNode1.Ori.y * 10000.0f);
-//	out_z = (int32_t) (SensorNode1.Ori.z * 10000.0f);
-//	stream_putbits(&stream, out_w, 16);	//Ori W
-//	stream_putbits(&stream, out_x, 16);	//Ori X
-//	stream_putbits(&stream, out_y, 16);	//Ori Y
-//	stream_putbits(&stream, out_z, 16);	//Ori Z
-
-
+	stream_putbits(&stream, out_z, 16);	//GYRO Z  
+	
 	uint32_t bleSendErrCode = 0;
 	
 	//bleSendErrCode = ble_armlet_send(&m_armlet, buffer, 20);
@@ -760,39 +750,24 @@ static uint32_t SendPKG()
 		app_uart_put(0x0a); 
 	} 
  	
-	//................第二包数据 算法输出测试.............................//	
+	//................第二包数据 算法输出测试.............................//
+	//uint8_t buffer[25] = {0};	
  	memset(buffer, 0, sizeof(buffer));
 	stream_init(&stream, buffer, sizeof(buffer));
 	stream_putbits(&stream, 0,  	 2);				//Test(0)
 	stream_putbits(&stream, timestamp,  	 9);		//时间戳(0~511) 
-	stream_putbits(&stream, id++, 	 3);				//保号(0~8)   //(0~31) 
-	stream_putbits(&stream, 0, 	 2);    //加2bit的0，对齐到data[2]	
+	stream_putbits(&stream, id++, 	 5);				//保号(0~8)   //(0~31) 
 	
-	
-//	out_w = (int32_t) (SensorNode1.Ori.w * 10000.0f);
-// 	out_x = (int32_t) (SensorNode1.Ori.x * 10000.0f);
-// 	out_y = (int32_t) (SensorNode1.Ori.y * 10000.0f);
-// 	out_z = (int32_t) (SensorNode1.Ori.z * 10000.0f);
-//	
-// 	
-//	stream_putbits(&stream, out_w, 16);	//Ori X
-// 	stream_putbits(&stream, out_x, 16);	//Ori X
-// 	stream_putbits(&stream, out_y, 16);	//Ori Y
-// 	stream_putbits(&stream, out_z, 16);	//Ori Z 
+	int32_t testW, testX, testY, testZ;
 
- 	out_x = (int32_t)(SensorNode1.SamplePeriod * 10000.0f);
-	stream_putbits(&stream, out_x, 16);	//Ori W
-	
-	int16_t testW, testX, testY, testZ;
-	testW = (int16_t) (SensorNode1.Ori.w * 1000.0f);
-	testX = (int16_t) (SensorNode1.Ori.x * 1000.0f);
- 	testY = (int16_t) (SensorNode1.Ori.y * 1000.0f);
- 	testZ = (int16_t) (SensorNode1.Ori.z * 1000.0f); 
- 	
-	stream_putbits(&stream, testW, 16);	//Ori X
-	stream_putbits(&stream, testX, 16);	//Ori X
- 	stream_putbits(&stream, testY, 16);	//Ori Y
- 	stream_putbits(&stream, testZ, 16);	//Ori Z 
+	testW = (int32_t) (SensorNode1.Ori.w * 10000.0f);
+	testX = (int32_t) (SensorNode1.Ori.x * 10000.0f);
+ 	testY = (int32_t) (SensorNode1.Ori.y * 10000.0f);
+ 	testZ = (int32_t) (SensorNode1.Ori.z * 10000.0f);  	
+	stream_putbits(&stream, testW, 32);	//Ori X
+	stream_putbits(&stream, testX, 32);	//Ori X
+ 	stream_putbits(&stream, testY, 32);	//Ori Y
+ 	stream_putbits(&stream, testZ, 32);	//Ori Z 
 
 	if(1)//bleSendErrCode == 0)
 	{
@@ -806,67 +781,7 @@ static uint32_t SendPKG()
 		app_uart_put(0x0d);
 		app_uart_put(0x0a); 
 	}  
- 
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
 	return bleSendErrCode;
-	/*
-	memset(buffer, 0, sizeof(buffer));
-	stream_init(&stream, buffer, sizeof(buffer));
-	stream_putbits(&stream, 3,  	 2);		//shoudler(2)
-	stream_putbits(&stream, timestamp,  	 9);		//时间戳(0~511) //128
-	stream_putbits(&stream, id++, 	 3);		//保号(0~31)
-	
-	out_x = (int16_t) (SensorNode2.mx_raw * 10000.0f);
-	out_y = (int16_t) (SensorNode2.my_raw * 10000.0f);
-	out_z = (int16_t) (SensorNode2.mz_raw * 10000.0f);
-	
-	stream_putbits(&stream, out_x, 10);	//地磁X
-	stream_putbits(&stream, out_y, 10);	//地磁Y
-	stream_putbits(&stream, out_z, 10);	//地磁Z
-	stream_putbits(&stream, 0, 4);
-	
-	
-	out_x = (int16_t) (SensorNode2.ax_raw * 10000.0f);
-	out_y = (int16_t) (SensorNode2.ay_raw * 10000.0f);
-	out_z = (int16_t) (SensorNode2.az_raw * 10000.0f);
-	
-	stream_putbits(&stream, out_x, 16);	//ACC X
-	stream_putbits(&stream, out_y, 16);	//ACC Y
-	stream_putbits(&stream, out_z, 16);	//ACC Z
-	
-	
-	out_x = (int32_t) (SensorNode2.gx_raw * 1000.0f);
-	out_y = (int32_t) (SensorNode2.gy_raw * 1000.0f);
-	out_z = (int32_t) (SensorNode2.gz_raw * 1000.0f);
-	
-	stream_putbits(&stream, out_x, 16);	//GYRO X
-	stream_putbits(&stream, out_y, 16);	//GYRO Y
-	stream_putbits(&stream, out_z, 16);	//GYRO Z
-
-	if(1)//bleSendErrCode == 0)
-	{
-		app_uart_put(0xFE);
-		app_uart_put(0xEF); 
-		int i;
-		for(i =0; i <20; i++)
-		{
-			app_uart_put(buffer[i]);
-		} 
-		app_uart_put(0x0d);
-		app_uart_put(0x0a); 
-	} 
-
-	*/
 }
 
 /**@brief main loop.
