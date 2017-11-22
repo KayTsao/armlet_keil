@@ -2,6 +2,10 @@
 #include "attitudeSensor.h"  
 
 #include "nrf_log.h"
+#include "float.h"
+
+#define FLOAT_MIN (5*FLT_MIN) 
+
 
 static const float _1_ = 0.99999999 ;
 static const float _0_ = 0.00000001 ;
@@ -276,9 +280,9 @@ void initAlgoParam(AttitudeSensor *sensor)
 int processRawMag(AttitudeSensor *s)
 { 
 	float Mag[3]; 
-	Mag[0] = s->mx_raw * 64.0f; 
-	Mag[1] = s->my_raw * 64.0f;
-	Mag[2] = s->mz_raw * 64.0f; 
+	Mag[0] = s->mx_raw * 256.0f;//64.0f; 
+	Mag[1] = s->my_raw * 256.0f;//64.0f;
+	Mag[2] = s->mz_raw * 256.0f;//64.0f; 
 
 	Mag[0] = s->Mag_Scale[0] * (Mag[0] - s->Mag_Bias[0]); 
 	Mag[1] = s->Mag_Scale[1] * (Mag[1] - s->Mag_Bias[1]); 
@@ -711,4 +715,225 @@ void processData(AttitudeSensor * sensor)
 	
 	return; 
 }
+
+
+//=================================Mag_Calibration_Part================================
+
+void ApplyMagParam2Sensor(MagSensorCalibrator * c, AttitudeSensor * sensor)
+{
+	sensor->Mag_Scale[0] = c->mag_scale_x;
+	sensor->Mag_Scale[1] = c->mag_scale_y;
+	sensor->Mag_Scale[2] = c->mag_scale_z; 
+	sensor->Mag_Bias[0] = c->mag_bias_x; 
+	sensor->Mag_Bias[1] = c->mag_bias_y; 
+	sensor->Mag_Bias[2] = c->mag_bias_z; 
+	return;
+
+}
+
+
+
+
+void initCalibrator(MagSensorCalibrator * c)
+{
+	c->idx = 0;  
+	c->mag_bias_x = 0.0f;
+	c->mag_bias_y = 0.0f;
+	c->mag_bias_z = 0.0f;
+	
+	c->mag_scale_x = 1.0f;
+	c->mag_scale_y = 1.0f;
+	c->mag_scale_z = 1.0f;
+	return;
+}
+
+void calcMagParam(MagSensorCalibrator * c)
+{
+	//NRF_LOG_PRINTF("\n insideFunc\n"); //NRF_LOG_PRINTF("insideFunc addr:%x %x %x \n", c, c->MagSamples, &(c->MagSamples[0][0]));
+	float(*p)[6] = c->MagOriginEquationFactors;//MagOriginEquationFactors;  // [50][6]     //float(*s)[3] = c->MagSamples;
+	int i;
+	float x[6][6];
+	float y[6]; 	
+	for(i = 0; i < 6; i++)
+	{
+		int j,k;
+		//计算x[i][:]
+		for(j = 0; j < 6; j++)
+		{
+			x[i][j] = 0;
+			for(k = 0; k < MaxGoodMagSamplesCount; k++)
+			{
+				x[i][j] += p[k][j] * p[k][i];
+			}
+		}
+		//计算y[i]
+		y[i] = 0;
+		for(k = 0; k < MaxGoodMagSamplesCount; k++)
+		{
+			float weight = 1;
+			if(k < 6)
+			{
+				weight *= 1.0f;
+			}
+			y[i] += p[k][i] * weight ;
+		}
+		y[i] *= MagMeasuredRadius * MagMeasuredRadius;
+	}  
+	//求解拟合的方程 
+	if(SolveLinearEquations( (float*)x, y, 6, 6, y))
+	{  
+		//计算校正参数
+		float ratioX, ratioY, ratioZ ;
+        float offsetX, offsetY, offsetZ ;
+
+        offsetX = y[1]/y[0] ;
+        offsetY = y[3]/y[2] ;
+        offsetZ = y[5]/y[4] ;
+
+        ratioX = sqrt(y[0]/y[4]) ;
+        ratioY = sqrt(y[2]/y[4]) ;
+        ratioZ = 1 ;   //比例都以z轴为参考
+		
+		c->mag_bias_x = offsetX;
+		c->mag_bias_y = offsetY;
+		c->mag_bias_z = offsetZ;
+		c->mag_scale_x = ratioX;
+		c->mag_scale_y = ratioY;
+		c->mag_scale_z = ratioZ;
+		
+		//NRF_LOG_PRINTF("Infunc offset: %f\t%f\t%f\nScale: %f\t%f\t%f\n",offsetX,offsetY,offsetZ,ratioX,ratioY,ratioZ);
+	}
+}
+
+
+//=================================Matrix_Part==============================================
+
+/*高斯消元法
+ *
+ * 参数 : 
+ * x:  待消元的矩阵，二级指针 且输入的内容会被改变 不使能得到上三角矩阵
+ * row： 矩阵行数 
+ * col:矩阵列数 
+ * backEnable：是否向回消 使能后得到对角阵
+ * y: 用于求解方程组 方程组等号右边的列
+ * sign：用于求解行列式 表示矩阵在变换前后行列式的正负号发生过变化 返回true代表没有发生变化 
+ * follow：用于求逆 本身是矩阵 一般 输入一个与x一样大的单位矩阵作为follow，它将跟随x发生变化
+ * 返回值：
+ * true: 行列式非0
+*/
+int GaussElimination ( float**x, int row, int col, int backEnable,float*y, int* sign, float **follow )
+{
+	int ret  = 1;
+	int i, j ;
+  
+	if ( sign )
+		*sign = 1 ;
+  
+	for ( i=0; i<row; i++ )
+	{
+		if ( i >= col )      
+		break ;
+
+		for ( j=i; j<row; j++ )
+		{
+		  if ( x[j][i] >= FLOAT_MIN || x[j][i] <= - FLOAT_MIN  )
+			break ;
+		  else
+			x[j][i] = 0.0f ;
+		}
+
+		if ( j == row )
+		{
+		  ret = 0; //false ;
+		  continue ; 
+		}
+		else if ( j > i )
+		{
+		  // swap row i and row j 
+		  float *temp = x[i] ;
+		  x[i] = x[j] ;
+		  x[j] = temp ;
+
+		  if (follow)
+		  {
+			float *temp = follow[i] ;
+			follow[i] = follow[j] ;
+			follow[j] = temp ;
+		  }
+		  
+		  if (y)
+		  {
+			float temp = y[i] ;
+			y[i] = y[j] ;
+			y[j] = temp ;
+		  }
+		  
+		  if (sign)
+		  {
+			*sign  *=  -1 ;   
+		  }
+		}
+		int start ;
+		if ( backEnable == 1)
+		start = 0 ;
+		else
+		start = i+1 ;
+		for ( j=start; j<row; j++ )
+		{
+			if (j==i)
+				continue ;
+			float ratio = -x[j][i] / x[i][i] ;
+			//  x[j] = x[i]*ratio + x[j] ;
+			int k ;
+			for ( k=i; k<col; k++ )
+			{
+				x[j][k] += ratio*x[i][k] ;
+				if ( k==i )
+				  x[j][k] = 0.0f ;      
+				if (follow)
+				  follow[j][k] += ratio*follow[i][k] ;
+			} 
+			if (y)
+			y[j] += ratio*y[i] ;
+		}
+	}	  
+	return ret ;
+}
+
+
+static float* EquationsXp  [MAX_MatrixDimension] ;
+static float* MatrixFollowp [MAX_MatrixDimension] ;
+static float  EquationsY  [MAX_MatrixDimension] ;
+
+/**
+解线性方程组
+为了节省单片机的栈 函数内部使用了静态数组EquationsXp,因此本函数不可重入
+*/
+int SolveLinearEquations ( float*x, float*y, int n, int xStep, float* result )
+{
+    if ( n > MAX_MatrixDimension )
+      return 0;    // ????
+  
+    int i ;
+    float ** px = EquationsXp ;
+    float * py = EquationsY ;
+    for (i=0; i<n;i++)
+    {
+      px[i] = x + xStep*i ;
+      py[i] = y[i] ;
+    }
+    
+    //if ( GaussElimination ( px, n, n, true, py, 0, 0 ) )
+    if ( GaussElimination ( px, n, n, 1, py, 0, 0 ) ) 
+	{
+        for (i=0; i<n; i++)
+          result [ i ] = py[i] / px[i][i] ;
+        return 1 ;
+    }
+    else
+    {
+      return 0 ;
+    }
+}
+
  

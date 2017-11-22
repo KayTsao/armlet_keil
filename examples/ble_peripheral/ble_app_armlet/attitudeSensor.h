@@ -1,7 +1,12 @@
 #ifndef __ATTITUDESENSOR_H
 #define __ATTITUDESENSOR_H
 #include "math.h"
-//#include "quaternion.h" 
+//#include "quaternion.h"
+
+#define MaxGoodMagSamplesCount (50) 
+#define MAX_MatrixDimension (50) 
+
+static const int16_t MagMeasuredRadius = 250 ;
 
 #ifndef bool
     #define bool int
@@ -203,4 +208,31 @@ int processRawGyr(AttitudeSensor * sensor);
 int processRawMag(AttitudeSensor * sensor);
 
 void MahonyAHRS(AttitudeSensor * sensor);
+
+
+
+
+typedef struct calibrator_t
+{ 
+	float MagSamples [MaxGoodMagSamplesCount][3] ;
+	float MagOriginEquationFactors[MaxGoodMagSamplesCount][6] ;  
+	int idx; 
+	float mag_bias_x;
+	float mag_bias_y;
+	float mag_bias_z;
+	
+	float mag_scale_x;
+	float mag_scale_y;
+	float mag_scale_z;
+	 
+} MagSensorCalibrator ;
+
+void initCalibrator(MagSensorCalibrator * calibrator);
+void calcMagParam(MagSensorCalibrator * c);
+
+int GaussElimination ( float**x, int row, int col, int backEnable,float*y, int* sign, float **follow );
+int SolveLinearEquations ( float*x, float*y, int n, int xStep, float* result );
+//int GaussElimination ( float**x, int row, int col, bool backEnable,float*y, int* sign, float **follow );
+void ApplyMagParam2Sensor(MagSensorCalibrator * c, AttitudeSensor * sensor);	
+
 #endif 

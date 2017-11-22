@@ -70,7 +70,7 @@
 #define APP_ADV_TIMEOUT_IN_SECONDS       180                                        /**< The advertising timeout in units of seconds. */
 
 #define APP_TIMER_PRESCALER              0                                          /**< Value of the RTC1 PRESCALER register. */
-#define APP_TIMER_OP_QUEUE_SIZE          5                                          /**< Size of timer operation queues. */
+#define APP_TIMER_OP_QUEUE_SIZE          6                                          /**< Size of timer operation queues. */
 
 #define MIN_CONN_INTERVAL                MSEC_TO_UNITS(7.5, UNIT_1_25_MS)           /**< Minimum acceptable connection interval (0.1 seconds). */
 #define MAX_CONN_INTERVAL                MSEC_TO_UNITS(15, UNIT_1_25_MS)           /**< Maximum acceptable connection interval (0.2 second). */
@@ -102,12 +102,15 @@ static ble_armlet_t                      m_armlet;
 //int16_t mag_raw[3];
 
 APP_TIMER_DEF(m_sensor_timer_id);                                                   /**< Sensor timer. */
+APP_TIMER_DEF(m_calibrator_timer_id);				   /**< mag calibration timer. **/
+
 static bool AppTimerFlag;
 
 //static SampleSlideBuf GlobalAccSampleSlideBuf_1 ;
 //static SampleSlideBuf GlobalGyrSampleSlideBuf_1 ;
 static AttitudeSensor SensorNode1, SensorNode2;
-
+static MagSensorCalibrator Mag_calibrator;
+static bool isCalibration;
 
 
 // YOUR_JOB: Use UUIDs for service(s) used in your application.
@@ -187,13 +190,7 @@ static bool LoadRawData(int id, int16_t* rawIMU, int16_t* rawMag)
 	
 }
 
-
-
-
-
-
-
-
+ 
 
 
 /**@brief Function for handling the Sensor measurement timer timeout.
@@ -228,6 +225,133 @@ static void sensor_timeout_handler(void * p_context)
 	return;  	
 }
 
+static void calibrator_timeout_handler(void * p_context)
+{ 
+//	if(Mag_calibrator.idx == MaxGoodMagSamplesCount)
+	if(Mag_calibrator.idx == 50)
+	{  
+		//关闭其他中断timer
+		app_timer_stop(m_calibrator_timer_id); 
+		//调用计算 
+		uint32_t t_start = get_time_us();
+		calcMagParam( &Mag_calibrator );
+		//对sensorNode赋值或其他操作记录参数
+		uint32_t t_stop = get_time_us();
+		uint32_t diff_ms = t_stop -t_start; 
+		NRF_LOG_PRINTF("Calculate time: %d %d %d\n",t_start ,t_stop, diff_ms); 
+		NRF_LOG_PRINTF("Out func offset: %f\t%f\t%f\nScale: %f\t%f\t%f\n",Mag_calibrator.mag_bias_x,
+		Mag_calibrator.mag_bias_y,Mag_calibrator.mag_bias_z,Mag_calibrator.mag_scale_x,Mag_calibrator.mag_scale_y,Mag_calibrator.mag_scale_z);
+		//计算完毕恢复正常
+		isCalibration = false;
+		//initCalibrator(&Mag_calibrator);
+		ApplyMagParam2Sensor(&Mag_calibrator, &SensorNode1);		
+	}
+	else
+	{
+		//采集数据中...
+		int idx = Mag_calibrator.idx; 
+		float mx,my,mz;
+		float dx,dy,dz;
+		float minRatio = 0.3f;
+		int i ;
+		
+		mx = SensorNode1.mx_raw * 256;
+		my = SensorNode1.my_raw * 256;
+		mz = SensorNode1.mz_raw * 256;
+		if(mx == 0 && my == 0 && mz ==0 )
+			return;
+			 
+		 
+		for(i = 0 ; i < idx; i++)
+		{
+			dx =  Mag_calibrator.MagSamples[i][0] - mx;
+			dy =  Mag_calibrator.MagSamples[i][1] - my;
+			dz =  Mag_calibrator.MagSamples[i][2] - mz;
+			
+			float length_cur, length_history;
+			
+			length_cur = dx*dx+dy*dy+dz*dz ;
+			length_history = (minRatio*minRatio) * (mx*mx + my*my + mz*mz);
+			if(length_cur < length_history)
+				return; 
+		}
+		if(i == idx)
+		{
+			Mag_calibrator.MagSamples[i][0] = mx;
+			Mag_calibrator.MagSamples[i][1] = my;
+			Mag_calibrator.MagSamples[i][2] = mz;
+			
+			Mag_calibrator.MagOriginEquationFactors[i][0] = mx * mx;
+			Mag_calibrator.MagOriginEquationFactors[i][1] = -2 * mx;
+			Mag_calibrator.MagOriginEquationFactors[i][2] = my * my;
+			Mag_calibrator.MagOriginEquationFactors[i][3] = -2 * my;
+			Mag_calibrator.MagOriginEquationFactors[i][4] = mz * mz;
+			Mag_calibrator.MagOriginEquationFactors[i][5] = -2 * mz;
+			
+			Mag_calibrator.idx++;
+		//-----------------------------------------SendUartToTest
+			NRF_LOG_PRINTF("MagSamples[%d][3]: %f %f %f \n",i, mx, my, mz); 
+	 
+			static uint8_t id = 0;
+			int32_t timestamp, out_x, out_y, out_z;
+			uint8_t buffer[20] = {0};
+			sStream stream;
+			timestamp = get_time_ms();
+ 	
+		
+			memset(buffer, 0, sizeof(buffer));
+			stream_init(&stream, buffer, sizeof(buffer));
+			stream_putbits(&stream, 2,  	 2);		//shoudler(2)
+			stream_putbits(&stream, timestamp,  	 9);		//时间戳(0~511) //128
+			stream_putbits(&stream, id++, 	 3);		//保号(0~31)
+			
+			
+			out_x = (int16_t) (SensorNode1.mx_raw * 10000.0f);
+			out_y = (int16_t) (SensorNode1.my_raw * 10000.0f);
+			out_z = (int16_t) (SensorNode1.mz_raw * 10000.0f);
+			
+			stream_putbits(&stream, out_x, 10);	//地磁X
+			stream_putbits(&stream, out_y, 10);	//地磁Y
+			stream_putbits(&stream, out_z, 10);	//地磁Z
+			stream_putbits(&stream, 0, 4);
+			
+			//Shoulder imu y -x z  Mag x y z
+			out_x = (int16_t) (SensorNode1.ax_raw * 10000.0f);
+			out_y = (int16_t) (SensorNode1.ay_raw * 10000.0f);
+			out_z = (int16_t) (SensorNode1.az_raw * 10000.0f);
+			
+			stream_putbits(&stream, out_x, 16);	//ACC X
+			stream_putbits(&stream, out_y, 16);	//ACC Y
+			stream_putbits(&stream, out_z, 16);	//ACC Z
+			
+		
+			out_x = (int32_t) (SensorNode1.gx_raw * 1000.0f);
+			out_y = (int32_t) (SensorNode1.gy_raw * 1000.0f);
+			out_z = (int32_t) (SensorNode1.gz_raw * 1000.0f);
+			
+			//NRF_LOG_PRINTF("\nMAG: %f %f %f \n",SensorNode1.gx_raw , SensorNode1.gy_raw , SensorNode1.gz_raw );
+			stream_putbits(&stream, out_x, 16);	//GYRO X
+			stream_putbits(&stream, out_y, 16);	//GYRO Y
+			stream_putbits(&stream, out_z, 16);	//GYRO Z
+
+			if(1)//bleSendErrCode == 0)
+			{
+				app_uart_put(0xFE);
+				app_uart_put(0xEF); 
+				int i;
+				for(i =0; i <20; i++)
+				{
+					app_uart_put(buffer[i]);
+				} 
+				app_uart_put(0x0d);
+				app_uart_put(0x0a);
+			}  
+			
+			
+		} 
+	}	
+}
+
 
 /**@brief Function for the Timer initialization.
  *
@@ -243,6 +367,10 @@ static void timers_init(void)
     uint32_t err_code;
     err_code = app_timer_create(&m_sensor_timer_id, APP_TIMER_MODE_REPEATED, sensor_timeout_handler);
     APP_ERROR_CHECK(err_code);
+	
+	err_code = app_timer_create(&m_calibrator_timer_id, APP_TIMER_MODE_REPEATED, calibrator_timeout_handler);
+	APP_ERROR_CHECK(err_code);
+	
 }
 
 
@@ -393,6 +521,10 @@ static void application_timers_start(void)
 
 	err_code = app_timer_start(m_sensor_timer_id, APP_TIMER_TICKS(2, APP_TIMER_PRESCALER), NULL);  ///used to be 2
 	APP_ERROR_CHECK(err_code);
+	
+	err_code = app_timer_start(m_calibrator_timer_id, APP_TIMER_TICKS(200, APP_TIMER_PRESCALER), NULL);
+	APP_ERROR_CHECK(err_code);
+	isCalibration = true; 
 }
 
 
@@ -686,7 +818,65 @@ static void power_manage(void)
 
 static uint32_t SendPKG()
 {
-	 
+		static uint8_t id = 0;
+		int32_t timestamp, out_x, out_y, out_z;
+		uint8_t buffer[20] = {0};
+		sStream stream;
+		timestamp = get_time_ms();
+ 	
+	
+		memset(buffer, 0, sizeof(buffer));
+		stream_init(&stream, buffer, sizeof(buffer));
+		stream_putbits(&stream, 2,  	 2);		//shoudler(2)
+		stream_putbits(&stream, timestamp,  	 9);		//时间戳(0~511) //128
+		stream_putbits(&stream, id++, 	 3);		//保号(0~31)
+		
+		
+		out_x = (int16_t) (SensorNode1.mx_raw * 10000.0f);
+		out_y = (int16_t) (SensorNode1.my_raw * 10000.0f);
+		out_z = (int16_t) (SensorNode1.mz_raw * 10000.0f);
+		
+		stream_putbits(&stream, out_x, 10);	//地磁X
+		stream_putbits(&stream, out_y, 10);	//地磁Y
+		stream_putbits(&stream, out_z, 10);	//地磁Z
+		stream_putbits(&stream, 0, 4);
+		
+		//Shoulder imu y -x z  Mag x y z
+		out_x = (int16_t) (SensorNode1.ax_raw * 10000.0f);
+		out_y = (int16_t) (SensorNode1.ay_raw * 10000.0f);
+		out_z = (int16_t) (SensorNode1.az_raw * 10000.0f);
+		
+		stream_putbits(&stream, out_x, 16);	//ACC X
+		stream_putbits(&stream, out_y, 16);	//ACC Y
+		stream_putbits(&stream, out_z, 16);	//ACC Z
+		
+	
+		out_x = (int32_t) (SensorNode1.gx_raw * 1000.0f);
+		out_y = (int32_t) (SensorNode1.gy_raw * 1000.0f);
+		out_z = (int32_t) (SensorNode1.gz_raw * 1000.0f);
+		
+		//NRF_LOG_PRINTF("\nMAG: %f %f %f \n",SensorNode1.gx_raw , SensorNode1.gy_raw , SensorNode1.gz_raw );
+		stream_putbits(&stream, out_x, 16);	//GYRO X
+		stream_putbits(&stream, out_y, 16);	//GYRO Y
+		stream_putbits(&stream, out_z, 16);	//GYRO Z
+
+		if(1)//bleSendErrCode == 0)
+		{
+			app_uart_put(0xFE);
+			app_uart_put(0xEF); 
+			int i;
+			for(i =0; i <20; i++)
+			{
+				app_uart_put(buffer[i]);
+			} 
+			app_uart_put(0x0d);
+			app_uart_put(0x0a);
+		}  
+
+
+
+
+	/*
 	static uint8_t id = 0;
 	int32_t timestamp, out_x, out_y, out_z, out_w;
 	uint8_t buffer[25] = {0};
@@ -749,14 +939,14 @@ static uint32_t SendPKG()
 		app_uart_put(0x0d);
 		app_uart_put(0x0a); 
 	} 
- 	
+*/ 	
 	//................第二包数据 算法输出测试.............................//
 	//uint8_t buffer[25] = {0};	
  	memset(buffer, 0, sizeof(buffer));
 	stream_init(&stream, buffer, sizeof(buffer));
 	stream_putbits(&stream, 0,  	 2);				//Test(0)
 	stream_putbits(&stream, timestamp,  	 9);		//时间戳(0~511) 
-	stream_putbits(&stream, id++, 	 5);				//保号(0~8)   //(0~31) 
+	stream_putbits(&stream, id, 	 5);				//保号(0~8)   //(0~31) 
 	
 	int32_t testW, testX, testY, testZ;
 
@@ -769,7 +959,7 @@ static uint32_t SendPKG()
  	stream_putbits(&stream, testY, 32);	//Ori Y
  	stream_putbits(&stream, testZ, 32);	//Ori Z 
 
-	if(1)//bleSendErrCode == 0)
+	if(1)
 	{
 		app_uart_put(0xFE);
 		app_uart_put(0xEF); 
@@ -781,26 +971,29 @@ static uint32_t SendPKG()
 		app_uart_put(0x0d);
 		app_uart_put(0x0a); 
 	}  
-	return bleSendErrCode;
+	return 0;	
 }
 
 /**@brief main loop.
  */
 static void main_loop()
 {
-	if(UpdateReady == true)
+	 power_manage();
+	if(!isCalibration)
 	{
-		processData(&SensorNode1); 
-		if(countNo > 0)  //5->85fps)
+		if(UpdateReady == true)
 		{
-			if(SendPKG() == 0)
+			processData(&SensorNode1); 
+			if(countNo > 0)  //5->85fps)
 			{
-				countNo = 0;
-			} 
+				if(SendPKG() == 0)
+				{
+					countNo = 0;
+				} 
+			}
+			UpdateReady = false;		
 		}
-		UpdateReady = false;		
 	}
-	  
 }
 
 
@@ -838,6 +1031,8 @@ int main(void)
     APP_ERROR_CHECK(err_code);
 	
     initAlgoParam(&SensorNode1);
+	initCalibrator(&Mag_calibrator);
+ 
 	// Enter main loop.
 	for(; ;)
 	{ 
