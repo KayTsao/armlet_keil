@@ -747,6 +747,50 @@ void initCalibrator(MagSensorCalibrator * c)
 	return;
 }
 
+int AddMagSample(MagSensorCalibrator* c, AttitudeSensor * s)
+{
+	int idx = c->idx; 
+	float mx,my,mz;
+	float dx,dy,dz;
+	float minRatio = 0.3f;
+	int i ;
+	float length_diff, length_self;
+			
+	mx = s->mx_raw * 256;
+	my = s->my_raw * 256;
+	mz = s->mz_raw * 256;
+	if(mx == 0 && my == 0 && mz ==0 )
+		return 0;
+	 
+	for(i = 0 ; i < idx; i++)
+	{
+		dx =  c->MagSamples[i][0] - mx;
+		dy =  c->MagSamples[i][1] - my;
+		dz =  c->MagSamples[i][2] - mz;
+		length_diff = dx*dx+dy*dy+dz*dz ;
+		length_self = (minRatio*minRatio) * (mx*mx + my*my + mz*mz);//应该会有问题 还有待确定。。。。
+		if(length_diff < length_self)
+			return 0; 
+	}
+	if(i == idx)
+	{
+		//NRF_LOG_PRINTF("diff Len:%f  self_Len%f\n",length_diff, length_self);
+		
+		c->MagSamples[i][0] = mx;
+		c->MagSamples[i][1] = my;
+		c->MagSamples[i][2] = mz;
+		
+		c->MagOriginEquationFactors[i][0] = mx * mx;
+		c->MagOriginEquationFactors[i][1] = -2 * mx;
+		c->MagOriginEquationFactors[i][2] = my * my;
+		c->MagOriginEquationFactors[i][3] = -2 * my;
+		c->MagOriginEquationFactors[i][4] = mz * mz;
+		c->MagOriginEquationFactors[i][5] = -2 * mz; 
+		c->idx++;
+	}
+	return 1;
+}
+
 void calcMagParam(MagSensorCalibrator * c)
 {
 	//NRF_LOG_PRINTF("\n insideFunc\n"); //NRF_LOG_PRINTF("insideFunc addr:%x %x %x \n", c, c->MagSamples, &(c->MagSamples[0][0]));

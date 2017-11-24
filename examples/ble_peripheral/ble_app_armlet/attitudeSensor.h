@@ -228,6 +228,8 @@ typedef struct calibrator_t
 } MagSensorCalibrator ;
 
 void initCalibrator(MagSensorCalibrator * calibrator);
+int AddMagSample(MagSensorCalibrator* c, AttitudeSensor * s);
+
 void calcMagParam(MagSensorCalibrator * c);
 
 int GaussElimination ( float**x, int row, int col, int backEnable,float*y, int* sign, float **follow );

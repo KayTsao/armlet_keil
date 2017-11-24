@@ -248,50 +248,9 @@ static void calibrator_timeout_handler(void * p_context)
 	}
 	else
 	{
-		//采集数据中...
-		int idx = Mag_calibrator.idx; 
-		float mx,my,mz;
-		float dx,dy,dz;
-		float minRatio = 0.3f;
-		int i ;
-		
-		mx = SensorNode1.mx_raw * 256;
-		my = SensorNode1.my_raw * 256;
-		mz = SensorNode1.mz_raw * 256;
-		if(mx == 0 && my == 0 && mz ==0 )
-			return;
-			 
-		 
-		for(i = 0 ; i < idx; i++)
-		{
-			dx =  Mag_calibrator.MagSamples[i][0] - mx;
-			dy =  Mag_calibrator.MagSamples[i][1] - my;
-			dz =  Mag_calibrator.MagSamples[i][2] - mz;
-			
-			float length_cur, length_history;
-			
-			length_cur = dx*dx+dy*dy+dz*dz ;
-			length_history = (minRatio*minRatio) * (mx*mx + my*my + mz*mz);
-			if(length_cur < length_history)
-				return; 
-		}
-		if(i == idx)
-		{
-			Mag_calibrator.MagSamples[i][0] = mx;
-			Mag_calibrator.MagSamples[i][1] = my;
-			Mag_calibrator.MagSamples[i][2] = mz;
-			
-			Mag_calibrator.MagOriginEquationFactors[i][0] = mx * mx;
-			Mag_calibrator.MagOriginEquationFactors[i][1] = -2 * mx;
-			Mag_calibrator.MagOriginEquationFactors[i][2] = my * my;
-			Mag_calibrator.MagOriginEquationFactors[i][3] = -2 * my;
-			Mag_calibrator.MagOriginEquationFactors[i][4] = mz * mz;
-			Mag_calibrator.MagOriginEquationFactors[i][5] = -2 * mz;
-			
-			Mag_calibrator.idx++;
-		//-----------------------------------------SendUartToTest
-			NRF_LOG_PRINTF("MagSamples[%d][3]: %f %f %f \n",i, mx, my, mz); 
-	 
+		if(AddMagSample(&Mag_calibrator , &SensorNode1))
+		{ 		 
+		//-----------------------------------------SendUartForTest
 			static uint8_t id = 0;
 			int32_t timestamp, out_x, out_y, out_z;
 			uint8_t buffer[20] = {0};
@@ -345,9 +304,7 @@ static void calibrator_timeout_handler(void * p_context)
 				} 
 				app_uart_put(0x0d);
 				app_uart_put(0x0a);
-			}  
-			
-			
+			} 
 		} 
 	}	
 }
